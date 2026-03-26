@@ -41,3 +41,10 @@ data/4.[[:space:]]QD411_QD_DHTL-Chuan_Dau_Ra_CNTT.pdf filter=lfs diff=lfs merge=
 data/4.1.[[:space:]]QuyDinh_Ve_CDR_CNTT_Ban_hanh_theo_QD411-06-4-2022.pdf filter=lfs diff=lfs merge=lfs -text
 data/7.[[:space:]]QĐ[[:space:]]đánh[[:space:]]giá[[:space:]]KQRL[[:space:]](Final[[:space:]]18-8-2016).doc filter=lfs diff=lfs merge=lfs -text
 data/9.[[:space:]]QĐ[[:space:]]Khen[[:space:]]thưởng[[:space:]]-[[:space:]]KL[[:space:]](Final[[:space:]]10-8-2016).doc filter=lfs diff=lfs merge=lfs -text
+data/10.[[:space:]]QĐ[[:space:]]1089[[:space:]]thi[[:space:]]OLP[[:space:]]môn[[:space:]]học[[:space:]](Final[[:space:]]10-5-2023).pdf filter=lfs diff=lfs merge=lfs -text
+data/11.[[:space:]]QĐ[[:space:]]về[[:space:]]Học[[:space:]]phí[[:space:]]final[[:space:]](25-10-2021).pdf filter=lfs diff=lfs merge=lfs -text
+data/12.[[:space:]]QD[[:space:]]ngoại[[:space:]]trú.pdf filter=lfs diff=lfs merge=lfs -text
+data/2.[[:space:]]QĐ[[:space:]]về[[:space:]]tiếng[[:space:]]anh[[:space:]]CTTT.300921.QD.1315.pdf filter=lfs diff=lfs merge=lfs -text
+data/3.[[:space:]]QD1767.TA[[:space:]]tăng[[:space:]]cường[[:space:]]ban[[:space:]]hanh.pdf filter=lfs diff=lfs merge=lfs -text
+data/7.[[:space:]]QĐ[[:space:]]đánh[[:space:]]giá[[:space:]]KQRL[[:space:]](Final[[:space:]]18-8-2016).pdf filter=lfs diff=lfs merge=lfs -text
+data/9.[[:space:]]QĐ[[:space:]]Khen[[:space:]]thưởng[[:space:]]-[[:space:]]KL[[:space:]](Final[[:space:]]10-8-2016).pdf filter=lfs diff=lfs merge=lfs -text
