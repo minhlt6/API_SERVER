@@ -1,15 +1,27 @@
-# --- Core Framework ---
+#Core Framework & Utils
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 python-multipart
 pydantic>=2.7.0
 python-dotenv
+tenacity>=8.3.0
 
-# --- Database & Vector DB ---
+# AI Providers
+groq>=0.9.0
+google-generativeai>=0.7.0
+
+# Database & Vector Store
 asyncpg>=0.29.0
 qdrant-client>=1.9.0
 
-# --- LangChain Ecosystem (Bản mới nhất >0.2.0) ---
+#Embedding Models & Transformers
+# Dùng torch bản CPU để tiết kiệm dung lượng trên Hugging Face
+torch>=2.0.0 --index-url https://download.pytorch.org/whl/cpu
+sentence-transformers>=3.0.0
+transformers>=4.40.0
+rank-bm25
+
+#LangChain Ecosystem 
 langchain>=0.2.0
 langchain-community>=0.2.0
 langchain-core>=0.2.0
@@ -17,13 +29,8 @@ langchain-text-splitters>=0.2.0
 langchain-qdrant
 langchain-huggingface
 langchain-groq
-langchain-ollama
 
-# --- NLP / Rerank / Embeddings ---
-sentence-transformers
-rank-bm25
-
-# --- File Loaders (Đọc tài liệu) ---
+#File Loaders
 python-docx
 pdfplumber
 pypdf
