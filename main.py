@@ -15,6 +15,7 @@ from core.config import QDRANT_URL, QDRANT_API_KEY, DATABASE_URL
 from core.vectorstore import build_vectorstore_improved, load_vectorstore_improved
 from core.retriever import HybridRetriever
 from core.qa_pipeline import ask_ai_improved, ask_ai_stream_delta
+
 # Hàm log lỗi an toàn
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,15 +23,17 @@ MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "20"))
 POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "1"))
 POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
 
-# Khởi tạo database để lưu lịch sử trò chuyện
+# Khởi tạo database để lưu lịch sử trò chuyện 
 async def init_db_asyncpg(pool: asyncpg.Pool):
     async with pool.acquire() as conn:
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS history (
                 id SERIAL PRIMARY KEY,
                 session_id TEXT NOT NULL,
+                user_id TEXT, 
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
+                title TEXT, 
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         ''')
@@ -38,10 +41,27 @@ async def init_db_asyncpg(pool: asyncpg.Pool):
             ALTER TABLE history
             ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         ''')
+        # 2 lệnh ALTER TABLE để cập nhật bảng cũ nếu đã tồn tại
+        await conn.execute('ALTER TABLE history ADD COLUMN IF NOT EXISTS user_id TEXT')
+        await conn.execute('ALTER TABLE history ADD COLUMN IF NOT EXISTS title TEXT')
+        
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_history_session_id_id
             ON history(session_id, id)
         ''')
+
+# Hàm lấy danh sách phiên chat theo user_id
+async def get_user_sessions_async(pool: asyncpg.Pool, user_id: str):
+    query = """
+        SELECT DISTINCT ON (session_id) 
+            session_id, title, created_at 
+        FROM history 
+        WHERE user_id = $1 
+        ORDER BY session_id, created_at DESC
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, user_id)
+    return [{"session_id": r["session_id"], "title": r["title"] or "Cuộc trò chuyện mới", "created_at": r["created_at"]} for r in rows]
 
 async def get_history_async(pool: asyncpg.Pool, session_id: str):
     try:
@@ -60,21 +80,24 @@ async def get_history_async(pool: asyncpg.Pool, session_id: str):
         logger.exception("Lỗi khi truy vấn lịch sử trò chuyện:", exc_info=True)
         return []
 
-async def save_turn_async(pool: asyncpg.Pool, session_id: str, user_msg: str, assistant_msg: str):
+#  Hàm lưu lượt chat để hỗ trợ title và user_id
+async def save_turn_async(pool: asyncpg.Pool, session_id: str, user_msg: str, assistant_msg: str, user_id: str = None):
     try:
         async with pool.acquire() as conn:
+            # Kiểm tra xem session này đã có tiêu đề chưa
+            existing_title = await conn.fetchval("SELECT title FROM history WHERE session_id = $1 LIMIT 1", session_id)
+            
+            # Nếu chưa có, lấy 40 ký tự đầu làm tiêu đề
+            title = existing_title if existing_title else user_msg[:40] + "..."
+
             async with conn.transaction():
                 await conn.execute(
-                    "INSERT INTO history (session_id, role, content) VALUES ($1, $2, $3)",
-                    session_id,
-                    "user",
-                    user_msg,
+                    "INSERT INTO history (session_id, user_id, role, content, title) VALUES ($1, $2, $3, $4, $5)",
+                    session_id, user_id, "user", user_msg, title
                 )
                 await conn.execute(
-                    "INSERT INTO history (session_id, role, content) VALUES ($1, $2, $3)",
-                    session_id,
-                    "assistant",
-                    assistant_msg,
+                    "INSERT INTO history (session_id, user_id, role, content, title) VALUES ($1, $2, $3, $4, $5)",
+                    session_id, user_id, "assistant", assistant_msg, title
                 )
     except Exception:
         logger.exception("Lỗi khi lưu lượt hội thoại:", exc_info=True)
@@ -128,6 +151,7 @@ def get_runtime_components(request: Request):
 
 #Cấu hình FastAPI với middleware CORS và lifespan để quản lý trạng thái hệ thống
 app = FastAPI(lifespan=lifespan, title= "RAG API SERVER")
+
 #Cho phép truy cập từ mọi nguồn 
 allow_origins = [origin.strip() for origin in os.getenv("ALLOW_ORIGINS", "*").split(",") if origin.strip()]
 if not allow_origins:
@@ -143,6 +167,7 @@ app.add_middleware(
 #Định nghĩa Endpoint 
 class ChatRequest(BaseModel):
     session_id: str
+    user_id: str = None
     message: str
 
 class ChatResponse(BaseModel):
@@ -154,7 +179,23 @@ async def health_check(request: Request):
     ready = bool(getattr(request.app.state, "retriever", None) and getattr(request.app.state, "db_pool", None))
     return {"status": "ok" if ready else "starting", "ready": ready}
 
-# Endpoint JSON thường (non-streaming) - trả toàn bộ câu trả lời một lúc
+#Endpoint lấy danh sách session ở Sidebar
+@app.get("/sessions/{user_id}")
+async def list_sessions(user_id: str, request: Request):
+    _, db_pool = get_runtime_components(request)
+    sessions = await get_user_sessions_async(db_pool, user_id)
+    return {"sessions": sessions}
+
+@app.get("/chat/history/{session_id}")
+async def get_session_history(session_id: str, request: Request):
+    """API để lấy toàn bộ nội dung tin nhắn cũ của một phiên chat cụ thể"""
+    _, db_pool = get_runtime_components(request)
+    history = await get_history_async(db_pool, session_id)
+    if not history:
+        return {"messages": []}
+    return {"messages": history}
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(payload: ChatRequest, request: Request):
     """Endpoint chat thông thường - trả JSON response đầy đủ"""
@@ -164,6 +205,7 @@ async def chat_endpoint(payload: ChatRequest, request: Request):
         raise HTTPException(status_code=400, detail="Bạn chưa nhập câu hỏi")
 
     session_id = payload.session_id
+    user_id = payload.user_id # Lấy user_id từ request
     history = await get_history_async(db_pool, session_id)
     
     # Tập hợp toàn bộ response từ generator
@@ -175,8 +217,8 @@ async def chat_endpoint(payload: ChatRequest, request: Request):
         logger.exception("Lỗi khi xử lý phản hồi từ AI:", exc_info=True)
         raise HTTPException(status_code=500, detail="Lỗi khi xử lý yêu cầu")
     
-    # Lưu lịch sử sau khi có response đầy đủ
-    await save_turn_async(db_pool, session_id, user_msg, full_response)
+    # Lưu lịch sử sau khi có response đầy đủ (Kèm theo user_id)
+    await save_turn_async(db_pool, session_id, user_msg, full_response, user_id)
     
     return ChatResponse(response=full_response)
 
@@ -190,6 +232,7 @@ async def chat_stream_endpoint(payload: ChatRequest, request: Request):
         raise HTTPException(status_code=400, detail="Bạn chưa nhập câu hỏi")
 
     session_id = payload.session_id
+    user_id = payload.user_id # Lấy user_id từ request
     history = await get_history_async(db_pool, session_id)
     
     async def event_stream_generator():
@@ -206,8 +249,8 @@ async def chat_stream_endpoint(payload: ChatRequest, request: Request):
             # Gửi tín hiệu kết thúc
             yield 'data: {"delta": "", "done": true}\n\n'
             
-            # Lưu lịch sử sau khi stream xong
-            await save_turn_async(db_pool, session_id, user_msg, full_response)
+            # Lưu lịch sử sau khi stream xong (Kèm theo user_id)
+            await save_turn_async(db_pool, session_id, user_msg, full_response, user_id)
             
         except Exception:
             logger.exception("Lỗi khi stream phản hồi từ AI:", exc_info=True)
