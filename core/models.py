@@ -7,5 +7,6 @@ embeddings = HuggingFaceEmbeddings(
     model_kwargs={'device': 'cpu'},
     encode_kwargs={'normalize_embeddings': True}
 )
+cross_encoder = CrossEncoder(CROSS_ENCODER_MODEL, device='cpu')
 
 llm = None
