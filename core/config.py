@@ -24,6 +24,9 @@ CHUNK_OVERLAP = int(os.getenv('CHUNK_OVERLAP', '150'))
 TOP_K_RESULTS = int(os.getenv('TOP_K_RESULTS', '15'))
 FINAL_TOP_K = int(os.getenv('FINAL_TOP_K', '5'))
 
+DATA_DIR = os.getenv('DATA_DIR', 'data')
+VECTOR_DIR = os.getenv('VECTOR_DIR', 'vectorstore')
+
 # External service configs
 QDRANT_URL = os.getenv('QDRANT_URL')
 QDRANT_API_KEY = os.getenv('QDRANT_API_KEY')
