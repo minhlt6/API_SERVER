@@ -9,8 +9,8 @@ try:
 except Exception:
     pass
 
-GROQ_API_KEYS = os.getenv('GROQ_API_KEYS', os.getenv('GROQ_API_KEY', ''))
-GEMINI_API_KEYS = os.getenv('GEMINI_API_KEYS', '')
+GROQ_API_KEYS = os.getenv('GROQ_API_KEYS', os.getenv('GROQ_API_KEY', '')).strip()
+GEMINI_API_KEYS = os.getenv('GEMINI_API_KEYS', '').strip()
 
 # Name models
 LLM_MODEL = os.getenv('LLM_MODEL', 'llama-3.1-70b-versatile')
