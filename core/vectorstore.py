@@ -209,7 +209,7 @@ def build_vectorstore_improved() -> Tuple[QdrantVectorStore, List]:
     if not client.collection_exists(COLLECTION_NAME):
         client.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE)
+            vectors_config=VectorParams(size=1024, distance=Distance.COSINE)
         )
 
     db = QdrantVectorStore(
