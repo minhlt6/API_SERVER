@@ -81,15 +81,32 @@ def generate_standalone_query(message: str, history: List) -> str:
         history_parts.append(f"{role_name}: {msg['content']}")
     history_str = "\n".join(history_parts)
 
-    prompt = f"""Bạn là một chuyên gia phân tích ngữ cảnh. Nhiệm vụ của bạn là phân tích câu hỏi hiện tại xem đã có đủ chủ đề chưa và có cần ghép thêm chủ đề từ lịch sử chat không? 
-     
-     CÁC QUY TẮC QUAN TRỌNG: 
-     1. Nếu câu hỏi đã rõ chủ đề (Ví dụ: "Thi olympic có được cộng điểm không?"): GIỮ NGUYÊN câu hỏi hiện tại, KHÔNG thêm bất kỳ từ nào.
-     2. Nếu câu hỏi hiện tại bị cộc lốc, thiếu chủ đề (Ví dụ: "điều 5 là gì?", "áp dụng cho ai?"): BẮT BUỘC tìm TÊN VĂN BẢN hoặc CHỦ ĐỀ ở câu trả lời ngay trước đó của AI để ghép vào.
-       - Ví dụ: Lịch sử nói về [Quy định Học bổng]. Câu hỏi: "điều 5 là gì?" -> Câu độc lập: "Điều 5 trong [Quy định Học bổng] là gì?".
-     3. TUYỆT ĐỐI KHÔNG tự bịa ra chủ đề nếu lịch sử không nhắc đến.
-    
+    prompt = f"""Bạn là một chuyên gia ngôn ngữ. Nhiệm vụ: Đọc Lịch sử trò chuyện và Câu hỏi hiện tại. 
+    - Nếu câu hỏi hiện tại bị thiếu chủ đề (nói tắt), hãy lấy chủ đề từ lịch sử đắp vào. 
+    - Nếu câu hỏi hiện tại ĐÃ CÓ ĐỦ chủ đề hoặc LÀ CHỦ ĐỀ MỚI HOÀN TOÀN, phải GIỮ NGUYÊN.
+
+    VÍ DỤ 1 (Cần ghép ngữ cảnh):
+    Lịch sử: 
+    User: Điều kiện nhận học bổng là gì?
+    AI: Sinh viên cần đạt GPA 3.2 trở lên.
+    Câu hỏi hiện tại: Vậy điểm rèn luyện thì sao?
+    -> Câu độc lập: Điều kiện điểm rèn luyện để nhận học bổng là gì?
+
+    VÍ DỤ 2 (Chủ đề mới, tự đứng độc lập, tuyệt đối không mượn ngữ cảnh cũ):
     Lịch sử:
+    User: Sinh viên vắng thi cuối kỳ không có lý do thì bị điểm mấy?
+    AI: Theo quy định, sinh viên vắng thi không phép sẽ nhận điểm 0 cho học phần đó.
+    Câu hỏi hiện tại: Điều kiện để được đăng ký học vượt là gì?
+    -> Câu độc lập: Điều kiện để sinh viên được đăng ký học vượt là gì?
+
+    VÍ DỤ 3 (Chuyển chủ đề hoàn toàn - Bắt chước lỗi của bạn):
+    Lịch sử:
+    User: Quy định về học phí ra sao?
+    AI: Học phí được đóng theo học kỳ...
+    Câu hỏi hiện tại: Các môn giáo dục thể chất mà trường có
+    -> Câu độc lập: Các môn giáo dục thể chất mà trường có
+
+    Lịch sử thực tế:
     {history_str}
     
     Câu hỏi hiện tại: {message}
