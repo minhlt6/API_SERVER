@@ -8,7 +8,7 @@ class HybridRetriever:
         self.documents = documents
         print(" Đang khởi tạo BM25...")
         tokenized_docs = [doc.page_content.lower().split() for doc in documents]
-        self.bm25 = BM25Okapi(tokenized_docs)
+        self.bm25 = BM25Okapi(tokenized_docs,k1=1.5, b=0.5)
         print(" BM25 sẵn sàng!")
 
     def search(self, query: str, k: int = 10, alpha: float = 0.6) -> List:
