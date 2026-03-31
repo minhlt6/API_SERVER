@@ -81,53 +81,70 @@ def generate_standalone_query(message: str, history: List) -> str:
         history_parts.append(f"{role_name}: {msg['content']}")
     history_str = "\n".join(history_parts)
 
-    prompt = f"""Bạn là một chuyên gia ngôn ngữ. Nhiệm vụ: Đọc Lịch sử trò chuyện và Câu hỏi hiện tại. 
-    - Nếu câu hỏi hiện tại bị thiếu chủ đề (nói tắt), hãy lấy chủ đề từ lịch sử đắp vào. 
+    prompt = f"""Bạn là một chuyên gia ngôn ngữ. Nhiệm vụ: Đọc Lịch sử trò chuyện và Câu hỏi hiện tại để tạo ra một CÂU HỎI ĐỘC LẬP.
+    
+    QUY TẮC PHÂN TÍCH NGỮ CẢNH:
+    - Nếu câu hỏi hiện tại bị thiếu chủ đề (nói tắt, dùng đại từ thay thế), hãy lấy chủ đề từ lịch sử đắp vào. 
     - Nếu câu hỏi hiện tại ĐÃ CÓ ĐỦ chủ đề hoặc LÀ CHỦ ĐỀ MỚI HOÀN TOÀN, phải GIỮ NGUYÊN.
 
-    VÍ DỤ 1 (Cần ghép ngữ cảnh):
+    VÍ DỤ 1 (Cần ghép ngữ cảnh - vì câu hỏi nói tắt):
     Lịch sử: 
-    User: Điều kiện nhận học bổng là gì?
-    AI: Sinh viên cần đạt GPA 3.2 trở lên.
-    Câu hỏi hiện tại: Vậy điểm rèn luyện thì sao?
-    -> Câu độc lập: Điều kiện điểm rèn luyện để nhận học bổng là gì?
+    User: Điều kiện nhận học bổng khuyến khích học tập là gì?
+    AI: Sinh viên cần đạt điểm trung bình từ 3.2 trở lên...
+    Câu hỏi hiện tại: Vậy điểm rèn luyện thì yêu cầu bao nhiêu?
+    -> JSON trả về: {{"standalone_query": "Điều kiện về điểm rèn luyện để nhận học bổng khuyến khích học tập là bao nhiêu?"}}
 
     VÍ DỤ 2 (Chủ đề mới, tự đứng độc lập, tuyệt đối không mượn ngữ cảnh cũ):
     Lịch sử:
     User: Sinh viên vắng thi cuối kỳ không có lý do thì bị điểm mấy?
-    AI: Theo quy định, sinh viên vắng thi không phép sẽ nhận điểm 0 cho học phần đó.
+    AI: Theo quy định, sinh viên vắng thi không phép sẽ nhận điểm 0...
     Câu hỏi hiện tại: Điều kiện để được đăng ký học vượt là gì?
-    -> Câu độc lập: Điều kiện để sinh viên được đăng ký học vượt là gì?
+    -> JSON trả về: {{"standalone_query": "Điều kiện để sinh viên được đăng ký học vượt là gì?"}}
 
-    VÍ DỤ 3 (Chuyển chủ đề hoàn toàn - Bắt chước lỗi của bạn):
+    VÍ DỤ 3 (Chuyển chủ đề hoàn toàn - KHÔNG được nhầm lẫn):
     Lịch sử:
-    User: Quy định về học phí ra sao?
-    AI: Học phí được đóng theo học kỳ...
-    Câu hỏi hiện tại: Các môn giáo dục thể chất mà trường có
-    -> Câu độc lập: Các môn giáo dục thể chất mà trường có
+    User: Quy định về thời hạn đóng học phí ra sao?
+    AI: Học phí phải được đóng trong 4 tuần đầu...
+    Câu hỏi hiện tại: Có những môn giáo dục thể chất nào?
+    -> JSON trả về: {{"standalone_query": "Có những môn giáo dục thể chất nào?"}}
+
+    BẮT BUỘC TRẢ VỀ ĐỊNH DẠNG JSON DUY NHẤT:
+    {{
+        "standalone_query": "Câu hỏi sau khi đã được tái tạo"
+    }}
 
     Lịch sử thực tế:
     {history_str}
     
-    Câu hỏi hiện tại: {message}
-    BẮT BUỘC: Bạn CHỈ ĐƯỢC trả ra câu hỏi độc lập cuối cùng. Không được in ra các suy luận, Không được giải thích.
-    Câu hỏi độc lập:"""
+    Câu hỏi hiện tại: {message}"""
     
-    # Sử dụng xoay tua cho bước tái tạo câu hỏi
+    # Gọi API ép trả về JSON
     for _ in range(max(1, len(api_manager.groq_keys))):
         try:
             client = api_manager.get_groq_client()
+            if not client:
+                break
+                
             response = client.chat.completions.create(
-                model="llama-3.1-8b-instant", # Dùng bản 8B cho nhanh và tiết kiệm
+                model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.0
+                temperature=0.0,
+                response_format={"type": "json_object"} 
             )
-            standalone_q = response.choices[0].message.content.strip()
-            logger.info(f" Câu hỏi đã tái tạo: {standalone_q}")
+            
+            # Phân tích chuỗi JSON trả về
+            result_str = response.choices[0].message.content.strip()
+            result_json = json.loads(result_str)
+            
+            standalone_q = result_json.get("standalone_query", message).strip()
+            logger.info(f" CÂU HỎI ĐÃ TÁI TẠO (JSON): {standalone_q}")
             return standalone_q
-        except Exception:
+            
+        except Exception as e:
+            logger.error(f"Lỗi tái tạo câu hỏi (JSON): {e}")
             api_manager.rotate_groq()
             continue
+            
     return message
 
 def ask_ai_improved(message: str, history: List, hybrid_retriever) -> Generator[str, None, None]:
