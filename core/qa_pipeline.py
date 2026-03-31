@@ -92,6 +92,7 @@ def generate_standalone_query(message: str, history: List) -> str:
     {history_str}
     
     Câu hỏi hiện tại: {message}
+    BẮT BUỘC : Bạn chỉ được trả ra câu hỏi độc lập cuối cùng , Không Được in ra các suy luận , Không được giải thích dài dòng, Không thêm bất kì từ ngữ nào khác ngoài câu hỏi .
     Câu hỏi độc lập:"""
     
     # Sử dụng xoay tua cho bước tái tạo câu hỏi
