@@ -47,6 +47,12 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
        - Ví dụ: "Quy chế thi", "mất mạng thì sao", "bị đình chỉ", "tính điểm thế nào", "sinh viên làm gì".
        - BẮT BUỘC đặt "answer": null (để hệ thống đi tìm trong tài liệu).
        - Expanded queries: Tạo 2-3 biến thể từ khóa để tìm kiếm tốt hơn.
+    4. KỸ NĂNG MỞ RỘNG TỪ KHÓA (RẤT QUAN TRỌNG):
+       - Sinh viên thường dùng từ lóng hoặc từ viết tắt. Bạn phải dịch nó ra ngôn ngữ hành chính của văn bản pháp luật.
+       - Ví dụ: "Trường mình" -> "Đại học Thủy lợi", "DHTL"
+       - Ví dụ: "Học bổng" -> "Học bổng khuyến khích học tập", "Học bổng chính sách", "Trợ cấp xã hội", "Miễn giảm học phí"
+       - Ví dụ: "Đuổi học" -> "Buộc thôi học", "Đình chỉ học tập"
+       - Ví dụ: "Trượt môn" -> "Điểm F", "Học lại", "Thi lại"
 
     OUTPUT JSON FORMAT:
     {{
