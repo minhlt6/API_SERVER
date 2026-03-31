@@ -34,6 +34,8 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
 
     1. **CHỐNG ẢO GIÁC (ANTI-HALLUCINATION) - ƯU TIÊN SỐ 1:**
         - Đọc kỹ `CÂU HỎI CỦA SINH VIÊN` và `TÀI LIỆU THAM KHẢO`.
+        - Nếu câu hỏi nhắc đến TÊN CÁC TRƯỜNG ĐẠI HỌC KHÁC (VD: Bách Khoa, NEU, Kinh tế...) hoặc các chủ đề hoàn toàn nằm ngoài môi trường đại học (VD: nấu ăn, thời tiết, lịch sử thế giới, code lập trình):
+        => BẮT BUỘC đặt "question_type": "normal", "answer": "Xin lỗi, tôi là trợ lý AI chuyên trách của Trường Đại học Thủy Lợi. Tôi chỉ hỗ trợ giải đáp các quy chế và thông tin liên quan đến sinh viên Thủy Lợi."
         - Nếu `CÂU HỎI` là câu hỏi cá nhân, trêu đùa (VD: "bạn biết tôi là ai không", "ăn cơm chưa") -> BỎ QUA TÀI LIỆU, trả lời ngay: "Xin lỗi, tôi chỉ hỗ trợ giải đáp thông tin về quy chế đào tạo."
         - Nếu `TÀI LIỆU THAM KHẢO` chứa nội dung KHÔNG LIÊN QUAN CHÚT NÀO đến câu hỏi (VD: Hỏi về 'điểm rèn luyện' nhưng tài liệu lại nói về 'học phí') -> TUYỆT ĐỐI KHÔNG tóm tắt tài liệu. Trả lời ngay: "Rất tiếc, hệ thống không tìm thấy thông tin phù hợp trong quy chế để trả lời câu hỏi của bạn."
     
@@ -47,12 +49,13 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
        - Ví dụ: "Quy chế thi", "mất mạng thì sao", "bị đình chỉ", "tính điểm thế nào", "sinh viên làm gì".
        - BẮT BUỘC đặt "answer": null (để hệ thống đi tìm trong tài liệu).
        - Expanded queries: Tạo 2-3 biến thể từ khóa để tìm kiếm tốt hơn.
-    4. KỸ NĂNG MỞ RỘNG TỪ KHÓA (RẤT QUAN TRỌNG):
-       - Sinh viên thường dùng từ lóng hoặc từ viết tắt. Bạn phải dịch nó ra ngôn ngữ hành chính của văn bản pháp luật.
-       - Ví dụ: "Trường mình" -> "Đại học Thủy lợi", "DHTL"
-       - Ví dụ: "Học bổng" -> "Học bổng khuyến khích học tập", "Học bổng chính sách", "Trợ cấp xã hội", "Miễn giảm học phí"
-       - Ví dụ: "Đuổi học" -> "Buộc thôi học", "Đình chỉ học tập"
-       - Ví dụ: "Trượt môn" -> "Điểm F", "Học lại", "Thi lại"
+    4. KỸ NĂNG MỞ RỘNG TỪ KHÓA TỔNG QUÁT (BẮT BUỘC):
+       - Bạn phải đóng vai một chuyên viên phòng Đào tạo. Nhiệm vụ của bạn là "dịch" ngôn ngữ đời thường/viết tắt của sinh viên sang các THUẬT NGỮ HÀNH CHÍNH, PHÁP LÝ chính thức thường xuất hiện trong các văn bản quy phạm.
+       - LUÔN LUÔN tạo ra các biến thể tìm kiếm theo 3 hướng sau để đảm bảo không bỏ sót tài liệu:
+         + Hướng 1 (Hành chính hóa): Chuyển đổi các động từ/danh từ thông tục sang từ ngữ học vụ trang trọng. (Ví dụ: "đuổi học" -> "buộc thôi học"; "trượt môn" -> "học lại, điểm F"; "xin nghỉ" -> "tạm ngừng học tập").
+         + Hướng 2 (Từ khóa bao trùm): Tìm chủ đề lớn chứa vấn đề đó. (Ví dụ: Hỏi về "điểm rèn luyện" -> Thêm từ khóa "Đánh giá kết quả rèn luyện").
+         + Hướng 3 (Định nghĩa): Thêm các tiền tố để tìm chính xác định nghĩa. (Ví dụ: "Học bổng là gì", "Các loại học bổng", "Quy định về...").
+       - Trả về danh sách gồm câu gốc và các biến thể này.
 
     OUTPUT JSON FORMAT:
     {{
