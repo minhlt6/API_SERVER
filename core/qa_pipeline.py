@@ -35,7 +35,7 @@ class AIProviderManager:
     def rotate_groq(self):
         if len(self.groq_keys) > 1:
             self.groq_idx = (self.groq_idx + 1) % len(self.groq_keys)
-            logger.info(f"🔄 Đã xoay sang Groq Key thứ {self.groq_idx + 1}")
+            logger.info(f" Đã xoay sang Groq Key thứ {self.groq_idx + 1}")
 
     def get_gemini_key(self):
         if not self.gemini_keys: return None
@@ -44,12 +44,12 @@ class AIProviderManager:
     def rotate_gemini(self):
         if len(self.gemini_keys) > 1:
             self.gemini_idx = (self.gemini_idx + 1) % len(self.gemini_keys)
-            logger.info(f"🔄 Đã xoay sang Gemini Key dự phòng")
+            logger.info(f"Đã xoay sang Gemini Key dự phòng")
 
 api_manager = AIProviderManager()
 
 def sanitize_for_prompt(text: str) -> str:
-    """Lọc bỏ prompt injection và PII - Giữ nguyên của Minh"""
+    """Lọc bỏ prompt injection và PII """
     text = re.sub(r"(?i)(ignore previous instructions|system prompt|developer message|jailbreak)", "[FILTERED_INJECTION]", text)
     text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[EMAIL]", text)
     text = re.sub(r"\b(0\d{9}|\+84\d{9,10})\b", "[PHONE]", text)
@@ -57,7 +57,7 @@ def sanitize_for_prompt(text: str) -> str:
     return text.strip()
 
 def generate_standalone_query(message: str, history: List) -> str:
-    """Tái tạo câu hỏi từ lịch sử - Giữ nguyên logic xử lý history phức tạp của Minh"""
+    """Tái tạo câu hỏi từ lịch sử """
     if not history:
         return message
         
@@ -110,7 +110,6 @@ def generate_standalone_query(message: str, history: List) -> str:
     return message
 
 def ask_ai_improved(message: str, history: List, hybrid_retriever) -> Generator[str, None, None]:
-    """Giữ nguyên hàm cumulative stream của Minh"""
     full_response = ""
     for delta in ask_ai_stream_delta(message, history, hybrid_retriever):
         full_response += delta
@@ -120,7 +119,6 @@ def ask_ai_improved(message: str, history: List, hybrid_retriever) -> Generator[
         yield full_response
 
 def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Generator[str, None, None]:
-    """Hàm chính xử lý RAG - Giữ nguyên 100% flow của Minh"""
     if not message.strip():
         yield " Bạn chưa nhập câu hỏi."
         return
@@ -145,7 +143,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
     all_docs: List = []
     seen = set()
     for query in queries:
-        # GIỮ NGUYÊN logic alpha ngành CNTT của Minh
+        #Giữ nguyên logic alpha ngành CNTT của Minh
         current_alpha = 0.4 if "CNTT" in query.upper() else 0.5
         docs = hybrid_retriever.search(query, k=TOP_K_RESULTS, alpha=current_alpha)
         for doc in docs:
@@ -185,7 +183,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
         try:
             client = api_manager.get_groq_client()
             stream = client.chat.completions.create(
-                model="llama-3.1-70b-versatile",
+                model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
                 stream=True
             )
@@ -207,7 +205,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
         logger.warning("Chuyển sang Gemini ...")
         for _ in range(max(1, len(api_manager.gemini_keys))):
             try:
-                genai.configure(api_key=api_manager.get_current_gemini_key())
+                genai.configure(api_key=api_manager.get_gemini_key())
                 model = genai.GenerativeModel('gemini-2.5-flash')
                 response = model.generate_content(prompt, stream=True)
                 for chunk in response:
