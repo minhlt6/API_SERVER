@@ -81,18 +81,19 @@ def generate_standalone_query(message: str, history: List) -> str:
         history_parts.append(f"{role_name}: {msg['content']}")
     history_str = "\n".join(history_parts)
 
-    prompt = f"""Bạn là một chuyên gia phân tích ngữ cảnh.Nhiệm vụ của bạn là phân tích câu hỏi hiện tại xem đã có đủ ngữ cảnh chưa và có cần lấy ngữ cảnh từ lịch sử chat không ? 
+    prompt = f"""Bạn là một chuyên gia phân tích ngữ cảnh. Nhiệm vụ của bạn là phân tích câu hỏi hiện tại xem đã có đủ chủ đề chưa và có cần ghép thêm chủ đề từ lịch sử chat không? 
+     
      CÁC QUY TẮC QUAN TRỌNG: 
-     1. Nếu câu hỏi đã có đủ ngữ cảnh (Ví dụ :thi olympic có được cộng điểm không?) thì Giữ Nguyên ngữ cảnh và Không Cần lấy thêm ở lịch sử chat nữa.
-     2. Nếu câu hỏi hiện tại là câu hỏi nối tiếp, hỏi cộc lốc hoặc thiếu chủ đề (Ví dụ: "điều 5 là gì?", "vậy còn điểm F thì sao?", "áp dụng cho đối tượng nào?"), bạn PHẢI lấy TÊN VĂN BẢN hoặc CHỦ ĐỀ đang được nói đến ở AI ngay trước đó ghép vào câu hỏi.
-       - Ví dụ lịch sử đang nói về Giáo dục thể chất. Câu hỏi: "điều 5 là gì?" -> Câu độc lập: "Điều 5 trong quy định môn học Giáo dục thể chất là gì?".
-     3. GIỮ NGUYÊN VẸN các thuật ngữ chuyên ngành, tên ngành, từ viết tắt.
-     4. Nếu câu hỏi hiện tại đang chuyển sang chủ đề hoàn toàn mới (có chứa từ khóa của chủ đề mới), hãy bỏ qua lịch sử và giữ nguyên câu hỏi hiện tại.
+     1. Nếu câu hỏi đã rõ chủ đề (Ví dụ: "Thi olympic có được cộng điểm không?"): GIỮ NGUYÊN câu hỏi hiện tại, KHÔNG thêm bất kỳ từ nào.
+     2. Nếu câu hỏi hiện tại bị cộc lốc, thiếu chủ đề (Ví dụ: "điều 5 là gì?", "áp dụng cho ai?"): BẮT BUỘC tìm TÊN VĂN BẢN hoặc CHỦ ĐỀ ở câu trả lời ngay trước đó của AI để ghép vào.
+       - Ví dụ: Lịch sử nói về [Quy định Học bổng]. Câu hỏi: "điều 5 là gì?" -> Câu độc lập: "Điều 5 trong [Quy định Học bổng] là gì?".
+     3. TUYỆT ĐỐI KHÔNG tự bịa ra chủ đề nếu lịch sử không nhắc đến.
+    
     Lịch sử:
     {history_str}
     
     Câu hỏi hiện tại: {message}
-    BẮT BUỘC : Bạn chỉ được trả ra câu hỏi độc lập cuối cùng , Không Được in ra các suy luận , Không được giải thích dài dòng, Không thêm bất kì từ ngữ nào khác ngoài câu hỏi .
+    BẮT BUỘC: Bạn CHỈ ĐƯỢC trả ra câu hỏi độc lập cuối cùng. Không được in ra các suy luận, Không được giải thích.
     Câu hỏi độc lập:"""
     
     # Sử dụng xoay tua cho bước tái tạo câu hỏi
@@ -101,7 +102,8 @@ def generate_standalone_query(message: str, history: List) -> str:
             client = api_manager.get_groq_client()
             response = client.chat.completions.create(
                 model="llama-3.1-8b-instant", # Dùng bản 8B cho nhanh và tiết kiệm
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0
             )
             standalone_q = response.choices[0].message.content.strip()
             logger.info(f" Câu hỏi đã tái tạo: {standalone_q}")
