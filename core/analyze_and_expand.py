@@ -1,8 +1,10 @@
 import json
 import re
+import logging
 from typing import Dict, Any
-from .models import  llm
-from .llm_utils import safe_invoke
+
+logger = logging.getLogger(__name__)
+
 def clean_json_string(text: str) -> str:
     """Hàm làm sạch chuỗi JSON từ phản hồi của LLM"""
     text = re.sub(r'```json\s*', '', text)
@@ -18,6 +20,9 @@ def clean_json_string(text: str) -> str:
 
 def analyze_and_expand_query(question: str) -> Dict[str, Any]:
     print(" Phân tích & Mở rộng câu hỏi...")
+    
+    # Import cục bộ để tránh lỗi vòng lặp import (circular import) với qa_pipeline
+    from .qa_pipeline import api_manager
     
     # Prompt được tối ưu để ép AI trả về JSON chuẩn
     prompt = f"""
@@ -54,12 +59,32 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
     """
 
     try:
-        response = safe_invoke(llm, prompt, timeout=15, retries=1)
-        content = response.content if hasattr(response, 'content') else str(response)
-        
+        content = ""
+        # Gọi API Groq trực tiếp và áp dụng xoay tua Key
+        for _ in range(max(1, len(api_manager.groq_keys))):
+            try:
+                client = api_manager.get_groq_client()
+                if not client:
+                    break
+                    
+                response = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.1
+                )
+                content = response.choices[0].message.content
+                break  # Gọi API thành công thì thoát vòng lặp
+            except Exception as e:
+                logger.error(f"Lỗi Groq khi expand query, đang xoay key: {e}")
+                api_manager.rotate_groq()
+
+        if not content:
+            raise ValueError("Không nhận được phản hồi hợp lệ từ API")
+
         cleaned_json = clean_json_string(content)
         if not cleaned_json:
-            raise ValueError("Empty JSON content")
+            cleaned_json = content # Thử parse trực tiếp nếu clean trả về rỗng
 
         try:
             result = json.loads(cleaned_json)
