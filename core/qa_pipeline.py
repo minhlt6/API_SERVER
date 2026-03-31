@@ -81,12 +81,13 @@ def generate_standalone_query(message: str, history: List) -> str:
         history_parts.append(f"{role_name}: {msg['content']}")
     history_str = "\n".join(history_parts)
 
-    prompt = f"""Dựa vào lịch sử hội thoại, hãy viết lại câu hỏi hiện tại thành một câu hỏi độc lập, trọn vẹn ý nghĩa.
-     QUY TẮC QUAN TRỌNG (BẮT BUỘC TUÂN THỦ): 
-    1. BẮT BUỘC THÊM CHỦ ĐỀ TỪ LỊCH SỬ: Nếu câu hỏi hiện tại là câu hỏi nối tiếp, hỏi cộc lốc hoặc thiếu chủ đề (Ví dụ: "điều 5 là gì?", "vậy còn điểm F thì sao?", "áp dụng cho đối tượng nào?"), bạn PHẢI lấy TÊN VĂN BẢN hoặc CHỦ ĐỀ đang được nói đến ở AI ngay trước đó ghép vào câu hỏi.
+    prompt = f"""Bạn là một chuyên gia phân tích ngữ cảnh.Nhiệm vụ của bạn là phân tích câu hỏi hiện tại xem đã có đủ ngữ cảnh chưa và có cần lấy ngữ cảnh từ lịch sử chat không ? 
+     CÁC QUY TẮC QUAN TRỌNG: 
+     1. Nếu câu hỏi đã có đủ ngữ cảnh (Ví dụ :thi olympic có được cộng điểm không?) thì Giữ Nguyên ngữ cảnh và Không Cần lấy thêm ở lịch sử chat nữa.
+     2. Nếu câu hỏi hiện tại là câu hỏi nối tiếp, hỏi cộc lốc hoặc thiếu chủ đề (Ví dụ: "điều 5 là gì?", "vậy còn điểm F thì sao?", "áp dụng cho đối tượng nào?"), bạn PHẢI lấy TÊN VĂN BẢN hoặc CHỦ ĐỀ đang được nói đến ở AI ngay trước đó ghép vào câu hỏi.
        - Ví dụ lịch sử đang nói về Giáo dục thể chất. Câu hỏi: "điều 5 là gì?" -> Câu độc lập: "Điều 5 trong quy định môn học Giáo dục thể chất là gì?".
-    2. GIỮ NGUYÊN VẸN các thuật ngữ chuyên ngành, tên ngành, từ viết tắt.
-    3. Nếu câu hỏi hiện tại đang chuyển sang chủ đề hoàn toàn mới (có chứa từ khóa của chủ đề mới), hãy bỏ qua lịch sử và giữ nguyên câu hỏi hiện tại.
+     3. GIỮ NGUYÊN VẸN các thuật ngữ chuyên ngành, tên ngành, từ viết tắt.
+     4. Nếu câu hỏi hiện tại đang chuyển sang chủ đề hoàn toàn mới (có chứa từ khóa của chủ đề mới), hãy bỏ qua lịch sử và giữ nguyên câu hỏi hiện tại.
     Lịch sử:
     {history_str}
     
