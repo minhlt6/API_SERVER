@@ -48,3 +48,6 @@ data/2.[[:space:]]QĐ[[:space:]]về[[:space:]]tiếng[[:space:]]anh[[:space:]]C
 data/3.[[:space:]]QD1767.TA[[:space:]]tăng[[:space:]]cường[[:space:]]ban[[:space:]]hanh.pdf filter=lfs diff=lfs merge=lfs -text
 data/7.[[:space:]]QĐ[[:space:]]đánh[[:space:]]giá[[:space:]]KQRL[[:space:]](Final[[:space:]]18-8-2016).pdf filter=lfs diff=lfs merge=lfs -text
 data/9.[[:space:]]QĐ[[:space:]]Khen[[:space:]]thưởng[[:space:]]-[[:space:]]KL[[:space:]](Final[[:space:]]10-8-2016).pdf filter=lfs diff=lfs merge=lfs -text
+data/3784QD-DHTL__NCKH.pdf filter=lfs diff=lfs merge=lfs -text
+data/4079QD-DHTL_dd_Olympia.pdf filter=lfs diff=lfs merge=lfs -text
+data/8.[[:space:]]QĐ[[:space:]]ve[[:space:]]HBKKHT,[[:space:]]HBCS[[:space:]](final[[:space:]]12-5-2021).pdf filter=lfs diff=lfs merge=lfs -text
