@@ -41,5 +41,5 @@ class HybridRetriever:
             if score > 0:
                 rrf_results.append((score, doc))
         rrf_results.sort(key=lambda x: x[0], reverse=True)
-        return [doc for score, doc in rrf_results[:k]]]
+        return [doc for score, doc in rrf_results[:k]]
 
