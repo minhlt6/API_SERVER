@@ -3,6 +3,7 @@ import os, re, hashlib
 import logging 
 import groq
 import google.generativeai as genai
+import json 
 # Giữ nguyên các import của Minh
 from .models import llm
 from .config import TOP_K_RESULTS, FINAL_TOP_K
