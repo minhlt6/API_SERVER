@@ -50,6 +50,7 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
        - BẮT BUỘC đặt "answer": null (để hệ thống đi tìm trong tài liệu).
        - Expanded queries: Tạo 2-3 biến thể từ khóa để tìm kiếm tốt hơn.
     4. KỸ NĂNG MỞ RỘNG TỪ KHÓA TỔNG QUÁT (BẮT BUỘC):
+       - Trả về danh sách CHÍNH XÁC 3 CÂU bao gồm: 1 câu gốc đã tối ưu + 2 biến thể theo từ khóa học vụ. KHÔNG ĐƯỢC sinh quá 3 câu.
        - Bạn phải đóng vai một chuyên viên phòng Đào tạo. Nhiệm vụ của bạn là "dịch" ngôn ngữ đời thường/viết tắt của sinh viên sang các THUẬT NGỮ HÀNH CHÍNH, PHÁP LÝ chính thức thường xuất hiện trong các văn bản quy phạm.
        - LUÔN LUÔN tạo ra các biến thể tìm kiếm theo 3 hướng sau để đảm bảo không bỏ sót tài liệu:
          + Hướng 1 (Hành chính hóa): Chuyển đổi các động từ/danh từ thông tục sang từ ngữ học vụ trang trọng. (Ví dụ: "đuổi học" -> "buộc thôi học"; "trượt môn" -> "học lại, điểm F"; "xin nghỉ" -> "tạm ngừng học tập").
@@ -61,7 +62,7 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
     {{
         "question_type": "normal" | "simple" | "comparative" | "sequential" | "temporal" | "verification" | "exception",
         "answer": "Nội dung trả lời (chỉ nếu là normal) hoặc null (nếu là câu hỏi thi cử)",
-        "expanded_queries": ["câu gốc", "biến thể 1", "biến thể 2"]
+        "expanded_queries": ["Câu số 1", "Câu số 2", "Câu số 3"]
     }}
     
     CHỈ TRẢ VỀ JSON DUY NHẤT. KHÔNG GIẢI THÍCH THÊM.
@@ -116,6 +117,8 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
         if not isinstance(queries, list): queries = []
         if not queries: queries = [question]
         if question not in queries: queries.insert(0, question)
+
+        queries = queries[:3]
 
         final_result = {
             "question_type": q_type,
