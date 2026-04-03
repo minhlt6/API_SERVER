@@ -21,7 +21,7 @@ CROSS_ENCODER_MODEL = os.getenv('CROSS_ENCODER_MODEL', 'BAAI/bge-reranker-base')
 # Chunking and retrieval settings
 CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '800'))
 CHUNK_OVERLAP = int(os.getenv('CHUNK_OVERLAP', '150'))
-TOP_K_RESULTS = int(os.getenv('TOP_K_RESULTS', '25'))
+TOP_K_RESULTS = int(os.getenv('TOP_K_RESULTS', '15'))
 FINAL_TOP_K = int(os.getenv('FINAL_TOP_K', '5'))
 
 DATA_DIR = os.getenv('DATA_DIR', 'data')
