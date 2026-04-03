@@ -18,7 +18,7 @@ class HybridRetriever:
             bm25_scores = bm25_scores / bm25_scores.max()
         try:
             vector_results = self.vectorstore.similarity_search_with_score(
-                query, k=len(self.documents)
+                query, k=k*2;
             )
         except:
             return self.documents[:k]
