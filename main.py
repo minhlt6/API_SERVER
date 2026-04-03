@@ -173,7 +173,10 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
 
-
+@app.get("/")
+def read_root():
+    return {"status": "ok", "message": "Chatbot API đang chạy!"}
+    
 @app.get("/healthz")
 async def health_check(request: Request):
     ready = bool(getattr(request.app.state, "retriever", None) and getattr(request.app.state, "db_pool", None))
