@@ -20,13 +20,15 @@ class HybridRetriever:
         # Lấy top k từ Vector
         try:
             vector_results = self.vectorstore.similarity_search(query, k=k*2)
+            # Tạo dictionary lưu thứ hạng (rank) của Vector
             vector_ranked = {doc.page_content: rank for rank, doc in enumerate(vector_results, 1)}
-        except Exception:
-            return bm25_top_indices[:k]
+        except Exception as e:
+            print(f"Lỗi Vector Search: {e}")
+            return [doc for doc in bm25_top_indices[:k]]
 
-        # Kết hợp bằng RRF
-        rrf_scores = {}
-        c = 60 # Hằng số RRF chuẩn
+        
+        rrf_results = [] 
+        c = 60 
         
         for doc in self.documents:
             content = doc.page_content
@@ -37,9 +39,7 @@ class HybridRetriever:
                 score += 1.0 / (c + vector_ranked[content])
                 
             if score > 0:
-                rrf_scores[doc] = score
-
-        # Sắp xếp theo điểm RRF và trả về top K
-        combined = sorted(rrf_scores.items(), key=lambda item: item[1], reverse=True)
-        return [doc for doc, score in combined[:k]]
+                rrf_results.append((score, doc))
+        rrf_results.sort(key=lambda x: x[0], reverse=True)
+        return [doc for score, doc in rrf_results[:k]]]
 
