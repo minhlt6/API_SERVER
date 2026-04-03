@@ -15,7 +15,7 @@ class HybridRetriever:
         # Lấy top k từ BM25
         tokenized_query = query.lower().split()
         bm25_top_indices = self.bm25.get_top_n(tokenized_query, self.documents, n=k*2)
-        bm25_ranked = {doc.page_content: rank for rank, doc in enumerate(bm25_top_indices, 1)}
+        bm25_ranked = {doc.page_content.strip(): rank for rank, doc in enumerate(bm25_top_indices, 1)}
 
         # Lấy top k từ Vector
         try:
@@ -26,12 +26,11 @@ class HybridRetriever:
             print(f"Lỗi Vector Search: {e}")
             return [doc for doc in bm25_top_indices[:k]]
 
-        
+        all_retrieved = {doc.page_content.strip(): doc for doc in bm25_top_indices + vector_results}
         rrf_results = [] 
         c = 60 
         
-        for doc in self.documents:
-            content = doc.page_content
+        for content, doc in all_retrieved.items():
             score = 0.0
             if content in bm25_ranked:
                 score += 1.0 / (c + bm25_ranked[content])
@@ -40,6 +39,7 @@ class HybridRetriever:
                 
             if score > 0:
                 rrf_results.append((score, doc))
+
         rrf_results.sort(key=lambda x: x[0], reverse=True)
         return [doc for score, doc in rrf_results[:k]]
 
