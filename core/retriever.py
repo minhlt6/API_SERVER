@@ -12,26 +12,34 @@ class HybridRetriever:
         print(" BM25 sẵn sàng!")
 
     def search(self, query: str, k: int = 10, alpha: float = 0.6) -> List:
+        # Lấy top k từ BM25
         tokenized_query = query.lower().split()
-        bm25_scores = self.bm25.get_scores(tokenized_query)
-        if bm25_scores.max() > 0:
-            bm25_scores = bm25_scores / bm25_scores.max()
+        bm25_top_indices = self.bm25.get_top_n(tokenized_query, self.documents, n=k*2)
+        bm25_ranked = {doc.page_content: rank for rank, doc in enumerate(bm25_top_indices, 1)}
+
+        # Lấy top k từ Vector
         try:
-            vector_results = self.vectorstore.similarity_search_with_score(
-                query, k=k*2;
-            )
-        except:
-            return self.documents[:k]
-        vector_scores = {}
-        for doc, distance in vector_results:
-            similarity = 1 / (1 + distance)
-            vector_scores[doc.page_content] = similarity
-        combined = []
-        for i, doc in enumerate(self.documents):
-            bm25_score = bm25_scores[i]
-            vector_score = vector_scores.get(doc.page_content, 0)
-            final_score = alpha * vector_score + (1 - alpha) * bm25_score
-            combined.append((final_score, doc))
-        combined.sort(key=lambda x: x[0], reverse=True)
-        return [doc for score, doc in combined[:k]]
+            vector_results = self.vectorstore.similarity_search(query, k=k*2)
+            vector_ranked = {doc.page_content: rank for rank, doc in enumerate(vector_results, 1)}
+        except Exception:
+            return bm25_top_indices[:k]
+
+        # Kết hợp bằng RRF
+        rrf_scores = {}
+        c = 60 # Hằng số RRF chuẩn
+        
+        for doc in self.documents:
+            content = doc.page_content
+            score = 0.0
+            if content in bm25_ranked:
+                score += 1.0 / (c + bm25_ranked[content])
+            if content in vector_ranked:
+                score += 1.0 / (c + vector_ranked[content])
+                
+            if score > 0:
+                rrf_scores[doc] = score
+
+        # Sắp xếp theo điểm RRF và trả về top K
+        combined = sorted(rrf_scores.items(), key=lambda item: item[1], reverse=True)
+        return [doc for doc, score in combined[:k]]
 
