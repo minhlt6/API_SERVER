@@ -3,5 +3,4 @@ __pycache__/
 *.pyc
 chat_history.db
 .DS_Store
-data/
 vectorstore/
