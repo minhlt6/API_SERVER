@@ -1,9 +1,9 @@
 import os
+import re
 from typing import List, Tuple
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams
-from langchain_community.document_loaders import PyPDFLoader
 from docx import Document
 from .models import embeddings
 from .text_utils import clean_text
@@ -26,6 +26,121 @@ logger = logging.getLogger(__name__)
 
 CHUNKS_PICKLE = os.path.join(VECTOR_DIR, "chunks.pkl")
 COLLECTION_NAME = "quy_che_db"
+SUPPORTED_FORMATS = ('.pdf', '.doc', '.docx')
+ACADEMIC_YEAR_PATTERN = re.compile(r"(20\d{2})\s*[-_]\s*(20\d{2})")
+
+
+def normalize_academic_year(start_year: str, end_year: str) -> str:
+    return f"{int(start_year):04d}-{int(end_year):04d}"
+
+
+def extract_academic_year(text: str) -> str:
+    if not text:
+        return ""
+    match = ACADEMIC_YEAR_PATTERN.search(text)
+    if not match:
+        return ""
+    return normalize_academic_year(match.group(1), match.group(2))
+
+
+def discover_data_files() -> List[Tuple[str, str, str, str]]:
+    """Quet de quy thu muc data va tra ve (filepath, filename, relpath, academic_year)."""
+    if not os.path.isdir(DATA_DIR):
+        return []
+
+    discovered = []
+    for root, _, files in os.walk(DATA_DIR):
+        for filename in files:
+            if not filename.lower().endswith(SUPPORTED_FORMATS):
+                continue
+
+            filepath = os.path.join(root, filename)
+            relpath = os.path.relpath(filepath, DATA_DIR)
+            year = extract_academic_year(relpath) or "ALL"
+            discovered.append((filepath, filename, relpath, year))
+
+    discovered.sort(key=lambda x: x[2].lower())
+    return discovered
+
+
+def collect_chunk_relpaths(chunks: List) -> set:
+    relpaths = set()
+    for chunk in chunks:
+        metadata = chunk.metadata if isinstance(chunk.metadata, dict) else {}
+        relpath = metadata.get("source_relpath")
+        if relpath:
+            relpaths.add(os.path.normpath(str(relpath)))
+    return relpaths
+
+
+def enrich_chunk_metadata(chunks: List) -> bool:
+    """Bo sung metadata nam hoc cho chunks cu de dam bao loc theo nam hoat dong."""
+    changed = False
+    for chunk in chunks:
+        metadata = chunk.metadata if isinstance(chunk.metadata, dict) else {}
+
+        source = metadata.get("source")
+        source_file = metadata.get("source_file")
+        source_relpath = metadata.get("source_relpath")
+
+        if not source_relpath:
+            if source and os.path.isabs(str(source)):
+                try:
+                    source_relpath = os.path.relpath(source, DATA_DIR)
+                except Exception:
+                    source_relpath = str(source)
+            elif source:
+                source_relpath = str(source)
+            elif source_file:
+                source_relpath = str(source_file)
+
+            if source_relpath:
+                metadata["source_relpath"] = source_relpath
+                changed = True
+
+        if not metadata.get("academic_year"):
+            year = extract_academic_year(source_relpath or source_file or "") or "ALL"
+            metadata["academic_year"] = year
+            changed = True
+
+        if "page_number" not in metadata and metadata.get("page") is not None:
+            metadata["page_number"] = metadata.get("page")
+            changed = True
+
+        chunk.metadata = metadata
+
+    return changed
+
+
+def load_and_clean_all_docs() -> List[LangChainDocument]:
+    docs: List[LangChainDocument] = []
+    file_entries = discover_data_files()
+
+    if not file_entries:
+        logger.error(" Không tìm thấy file PDF, DOC, hoặc DOCX!")
+        return docs
+
+    for filepath, filename, relpath, academic_year in file_entries:
+        logger.info(f" Đang đọc: {relpath}")
+        loaded_docs = load_documents_from_file(filepath, filename)
+
+        for i, doc in enumerate(loaded_docs, 1):
+            cleaned = clean_text(doc.page_content)
+            if not cleaned or len(cleaned.split()) < 20:
+                continue
+
+            page_number = doc.metadata.get("page") if isinstance(doc.metadata, dict) else None
+            if page_number is None:
+                page_number = i
+
+            doc.metadata["source_file"] = filename
+            doc.metadata["source_relpath"] = relpath
+            doc.metadata["academic_year"] = academic_year
+            doc.metadata["page_number"] = page_number
+            doc.page_content = cleaned
+            docs.append(doc)
+
+    return docs
 
 def table_to_markdown(data: List[List[str]]) -> str:
     if not data or len(data) < 2:
@@ -170,28 +285,9 @@ def load_documents_from_file(filepath: str, filename: str) -> List:
         logger.error(f" Lỗi đọc {filename}: {str(e)[:60]}")
         return []
 
-def build_vectorstore_improved() -> Tuple[QdrantVectorStore, List]:
+def build_vectorstore_improved(recreate_collection: bool = False) -> Tuple[QdrantVectorStore, List]:
     logger.info(" Đang xây dựng vectorstore...")
-    docs = []
-    supported_formats = ('.pdf', '.doc', '.docx')
-    files = sorted([f for f in os.listdir(DATA_DIR) if f.lower().endswith(supported_formats)])
-    
-    if not files:
-        logger.error(" Không tìm thấy file PDF, DOC, hoặc DOCX!")
-        return None, []
-    
-    for filename in files:
-        filepath = os.path.join(DATA_DIR, filename)
-        logger.info(f" Đang đọc: {filename}")
-        loaded_docs = load_documents_from_file(filepath, filename)
-        
-        for i, doc in enumerate(loaded_docs, 1):
-            cleaned = clean_text(doc.page_content)
-            if cleaned and len(cleaned.split()) >= 20:
-                doc.metadata['source_file'] = filename
-                doc.metadata['page_number'] = i
-                doc.page_content = cleaned
-                docs.append(doc)
+    docs = load_and_clean_all_docs()
     
     if not docs:
         logger.error(" Không có văn bản hợp lệ!")
@@ -206,7 +302,15 @@ def build_vectorstore_improved() -> Tuple[QdrantVectorStore, List]:
         api_key=QDRANT_API_KEY
     )
     
-    if not client.collection_exists(COLLECTION_NAME):
+    if client.collection_exists(COLLECTION_NAME):
+        if recreate_collection:
+            logger.warning(f"Collection {COLLECTION_NAME} đã tồn tại. Đang tạo lại để đồng bộ dữ liệu mới...")
+            client.delete_collection(collection_name=COLLECTION_NAME)
+            client.create_collection(
+                collection_name=COLLECTION_NAME,
+                vectors_config=VectorParams(size=1024, distance=Distance.COSINE)
+            )
+    else:
         client.create_collection(
             collection_name=COLLECTION_NAME,
             vectors_config=VectorParams(size=1024, distance=Distance.COSINE)
@@ -249,6 +353,25 @@ def load_vectorstore_improved() -> Tuple[QdrantVectorStore, List]:
         try:
             with open(CHUNKS_PICKLE, 'rb') as f:
                 chunks = pickle.load(f)
+            if enrich_chunk_metadata(chunks):
+                try:
+                    os.makedirs(VECTOR_DIR, exist_ok=True)
+                    with open(CHUNKS_PICKLE, 'wb') as f:
+                        pickle.dump(chunks, f)
+                    logger.info(" Đã cập nhật metadata năm học cho chunks local")
+                except Exception as e:
+                    logger.error(f" Không thể cập nhật {CHUNKS_PICKLE}: {e}")
+
+            discovered_relpaths = {os.path.normpath(relpath) for _, _, relpath, _ in discover_data_files()}
+            chunk_relpaths = collect_chunk_relpaths(chunks)
+            missing_relpaths = sorted(discovered_relpaths - chunk_relpaths)
+
+            if missing_relpaths:
+                logger.warning(
+                    f" Phát hiện {len(missing_relpaths)} file mới chưa có trong chunks cache. Đang build lại vectorstore theo dữ liệu hiện tại..."
+                )
+                return build_vectorstore_improved(recreate_collection=True)
+
             logger.info(f" Đã load {len(chunks)} chunks từ {CHUNKS_PICKLE}")
             return db, chunks
         except Exception as e:
@@ -256,20 +379,7 @@ def load_vectorstore_improved() -> Tuple[QdrantVectorStore, List]:
 
 
     # Nếu mất file pickle hoặc lỗi, fallback về tái tạo từ file nguồn 
-    docs = []
-    supported_formats = ('.pdf', '.doc', '.docx')
-    files = sorted([f for f in os.listdir(DATA_DIR) if f.lower().endswith(supported_formats)])
-    for filename in files:
-        filepath = os.path.join(DATA_DIR, filename)
-        loaded_docs = load_documents_from_file(filepath, filename)
-        
-        for i, doc in enumerate(loaded_docs, 1):
-            cleaned = clean_text(doc.page_content)
-            if cleaned and len(cleaned.split()) >= 20:
-                doc.metadata['source_file'] = filename
-                doc.metadata['page_number'] = i
-                doc.page_content = cleaned
-                docs.append(doc)
+    docs = load_and_clean_all_docs()
 
     chunks = smart_chunking(docs)
     # Lưu lại chunks mới tái tạo vào file pickle để lần sau load nhanh hơn

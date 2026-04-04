@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 MAX_CONTEXT_CHARS = 12000
 MAX_DOC_CHARS = 1800 
 MAX_OUT_CHARS = 3000
+ACADEMIC_YEAR_PATTERN = re.compile(r"\b(20\d{2})\s*[-_/]\s*(20\d{2})\b")
+SINGLE_YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
 
 # Quản lý API Keys cho Groq và Gemini với xoay tua tự động khi gặp lỗi hoặc hết hạn
 class AIProviderManager:
@@ -48,6 +50,74 @@ class AIProviderManager:
             logger.info(f"Đã xoay sang Gemini Key dự phòng")
 
 api_manager = AIProviderManager()
+
+
+def normalize_academic_year(start_year: str, end_year: str) -> str:
+    return f"{int(start_year):04d}-{int(end_year):04d}"
+
+
+def detect_requested_year(text: str) -> tuple[str, set]:
+    """Phat hien nam hoc duoc nhac den trong cau hoi."""
+    requested_range = ""
+    mentioned_years = set()
+
+    for start_year, end_year in ACADEMIC_YEAR_PATTERN.findall(text or ""):
+        requested_range = normalize_academic_year(start_year, end_year)
+        mentioned_years.add(start_year)
+        mentioned_years.add(end_year)
+
+    for year in SINGLE_YEAR_PATTERN.findall(text or ""):
+        mentioned_years.add(year)
+
+    return requested_range, mentioned_years
+
+
+def infer_doc_academic_year(doc) -> str:
+    metadata = doc.metadata if isinstance(doc.metadata, dict) else {}
+    existing_year = metadata.get("academic_year")
+    if existing_year:
+        return existing_year
+
+    source_text = " ".join(
+        str(x) for x in [
+            metadata.get("source_relpath"),
+            metadata.get("source"),
+            metadata.get("source_file"),
+        ]
+        if x
+    )
+    match = ACADEMIC_YEAR_PATTERN.search(source_text)
+    if match:
+        year = normalize_academic_year(match.group(1), match.group(2))
+        metadata["academic_year"] = year
+        doc.metadata = metadata
+        return year
+
+    metadata["academic_year"] = "ALL"
+    doc.metadata = metadata
+    return "ALL"
+
+
+def filter_docs_by_year(docs: List, requested_range: str, mentioned_years: set) -> List:
+    if not requested_range and not mentioned_years:
+        return docs
+
+    filtered_docs = []
+    for doc in docs:
+        doc_year = infer_doc_academic_year(doc)
+        if doc_year == "ALL":
+            filtered_docs.append(doc)
+            continue
+
+        if requested_range and doc_year == requested_range:
+            filtered_docs.append(doc)
+            continue
+
+        doc_year_tokens = set(SINGLE_YEAR_PATTERN.findall(doc_year))
+        if doc_year_tokens.intersection(mentioned_years):
+            filtered_docs.append(doc)
+
+    return filtered_docs
 
 def sanitize_for_prompt(text: str) -> str:
     """Lọc bỏ prompt injection và PII """
@@ -168,6 +238,12 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
 
     logger.info(f" CÂU HỎI GỐC: {message}")
     question = generate_standalone_query(message, history)
+    requested_year_range, mentioned_years = detect_requested_year(f"{message}\n{question}")
+    if requested_year_range:
+        logger.info(f"Lọc theo năm học yêu cầu: {requested_year_range}")
+    elif mentioned_years:
+        logger.info(f"Lọc theo năm được nhắc tới: {sorted(mentioned_years)}")
+
     processed_data = analyze_and_expand_query(question)
 
     if processed_data.get("question_type") == "normal":
@@ -196,6 +272,19 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
         yield "Không tìm thấy thông tin liên quan trong tài liệu."
         return
 
+    year_filtered_docs = filter_docs_by_year(all_docs, requested_year_range, mentioned_years)
+    if (requested_year_range or mentioned_years) and not year_filtered_docs:
+        if requested_year_range:
+            yield f"Không tìm thấy thông tin phù hợp cho năm học {requested_year_range}."
+        else:
+            year_text = ", ".join(sorted(mentioned_years))
+            yield f"Không tìm thấy thông tin phù hợp cho năm bạn yêu cầu ({year_text})."
+        return
+
+    if year_filtered_docs and len(year_filtered_docs) != len(all_docs):
+        logger.info(f"Đã lọc theo năm: còn {len(year_filtered_docs)}/{len(all_docs)} documents")
+        all_docs = year_filtered_docs
+
     final_docs = advanced_rerank(question, all_docs, top_k=FINAL_TOP_K)
 
     context_parts = []
@@ -203,7 +292,9 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
     for doc in final_docs:
         page = doc.metadata.get('page_number', 'N/A')
         file_name = doc.metadata.get('source_file') or doc.metadata.get('source')
-        source = f"[{os.path.basename(file_name)} | Trang {page}]" if file_name else f"[Trang {page}]"
+        doc_year = infer_doc_academic_year(doc)
+        year_label = f"Năm {doc_year}" if doc_year != "ALL" else "Áp dụng nhiều năm"
+        source = f"[{year_label} | {os.path.basename(file_name)} | Trang {page}]" if file_name else f"[{year_label} | Trang {page}]"
         block = f"{source}\n{doc.page_content}"
         if total_chars + len(block) > MAX_CONTEXT_CHARS:
             break
@@ -212,7 +303,14 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
     
     context = "\n\n---\n\n".join(context_parts)
     topic_hint = processed_data.get('topic') or processed_data.get('root_question') or question
-    prompt = create_advanced_prompt(question, context, question_type, topic_hint)
+    if requested_year_range:
+        year_scope = requested_year_range
+    elif mentioned_years:
+        year_scope = ", ".join(sorted(mentioned_years))
+    else:
+        year_scope = None
+
+    prompt = create_advanced_prompt(question, context, question_type, topic_hint, year_scope=year_scope)
 
     logger.info("Đang tạo câu trả lời cuối cùng ...")
     
