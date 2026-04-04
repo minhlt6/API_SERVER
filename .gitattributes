@@ -33,21 +33,8 @@ saved_model/**/* filter=lfs diff=lfs merge=lfs -text
 *.zip filter=lfs diff=lfs merge=lfs -text
 *.zst filter=lfs diff=lfs merge=lfs -text
 *tfevents* filter=lfs diff=lfs merge=lfs -text
-data/1.[[:space:]]QĐ-1226-Quy[[:space:]]che[[:space:]]dao[[:space:]]tao[[:space:]]dai[[:space:]]hoc-DHTL[[:space:]](ban[[:space:]]hanh).docx filter=lfs diff=lfs merge=lfs -text
-data/10.[[:space:]]QĐ[[:space:]]1089[[:space:]]thi[[:space:]]OLP[[:space:]]môn[[:space:]]học[[:space:]](Final[[:space:]]10-5-2023).doc filter=lfs diff=lfs merge=lfs -text
-data/11.[[:space:]]QĐ[[:space:]]về[[:space:]]Học[[:space:]]phí[[:space:]]final[[:space:]](25-10-2021).doc filter=lfs diff=lfs merge=lfs -text
-data/3.[[:space:]]QD1767.TA[[:space:]]tăng[[:space:]]cường[[:space:]]ban[[:space:]]hanh.doc filter=lfs diff=lfs merge=lfs -text
-data/4.[[:space:]]QD411_QD_DHTL-Chuan_Dau_Ra_CNTT.pdf filter=lfs diff=lfs merge=lfs -text
-data/4.1.[[:space:]]QuyDinh_Ve_CDR_CNTT_Ban_hanh_theo_QD411-06-4-2022.pdf filter=lfs diff=lfs merge=lfs -text
-data/7.[[:space:]]QĐ[[:space:]]đánh[[:space:]]giá[[:space:]]KQRL[[:space:]](Final[[:space:]]18-8-2016).doc filter=lfs diff=lfs merge=lfs -text
-data/9.[[:space:]]QĐ[[:space:]]Khen[[:space:]]thưởng[[:space:]]-[[:space:]]KL[[:space:]](Final[[:space:]]10-8-2016).doc filter=lfs diff=lfs merge=lfs -text
-data/10.[[:space:]]QĐ[[:space:]]1089[[:space:]]thi[[:space:]]OLP[[:space:]]môn[[:space:]]học[[:space:]](Final[[:space:]]10-5-2023).pdf filter=lfs diff=lfs merge=lfs -text
-data/11.[[:space:]]QĐ[[:space:]]về[[:space:]]Học[[:space:]]phí[[:space:]]final[[:space:]](25-10-2021).pdf filter=lfs diff=lfs merge=lfs -text
-data/12.[[:space:]]QD[[:space:]]ngoại[[:space:]]trú.pdf filter=lfs diff=lfs merge=lfs -text
-data/2.[[:space:]]QĐ[[:space:]]về[[:space:]]tiếng[[:space:]]anh[[:space:]]CTTT.300921.QD.1315.pdf filter=lfs diff=lfs merge=lfs -text
-data/3.[[:space:]]QD1767.TA[[:space:]]tăng[[:space:]]cường[[:space:]]ban[[:space:]]hanh.pdf filter=lfs diff=lfs merge=lfs -text
-data/7.[[:space:]]QĐ[[:space:]]đánh[[:space:]]giá[[:space:]]KQRL[[:space:]](Final[[:space:]]18-8-2016).pdf filter=lfs diff=lfs merge=lfs -text
-data/9.[[:space:]]QĐ[[:space:]]Khen[[:space:]]thưởng[[:space:]]-[[:space:]]KL[[:space:]](Final[[:space:]]10-8-2016).pdf filter=lfs diff=lfs merge=lfs -text
-data/3784QD-DHTL__NCKH.pdf filter=lfs diff=lfs merge=lfs -text
-data/4079QD-DHTL_dd_Olympia.pdf filter=lfs diff=lfs merge=lfs -text
-data/8.[[:space:]]QĐ[[:space:]]ve[[:space:]]HBKKHT,[[:space:]]HBCS[[:space:]](final[[:space:]]12-5-2021).pdf filter=lfs diff=lfs merge=lfs -text
+
+# Track source regulation files in all year folders under data/
+data/**/*.pdf filter=lfs diff=lfs merge=lfs -text
+data/**/*.doc filter=lfs diff=lfs merge=lfs -text
+data/**/*.docx filter=lfs diff=lfs merge=lfs -text

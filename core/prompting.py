@@ -96,6 +96,7 @@ Về vấn đề [Chủ đề], theo **Điều [Số]**, các trường hợp ng
     else:
         topic_instr = ""
 
+    # [YEAR-AWARE CHANGE] Rang buoc cau tra loi theo nam hoc duoc hoi.
     if year_scope:
         year_instr = (
             f"\n\n **RÀNG BUỘC NĂM HỌC (BẮT BUỘC):**\n"

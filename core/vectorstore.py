@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 CHUNKS_PICKLE = os.path.join(VECTOR_DIR, "chunks.pkl")
 COLLECTION_NAME = "quy_che_db"
+# [YEAR-AWARE CHANGE] Ho tro quet de quy va gan metadata nam hoc.
 SUPPORTED_FORMATS = ('.pdf', '.doc', '.docx')
 ACADEMIC_YEAR_PATTERN = re.compile(r"(20\d{2})\s*[-_]\s*(20\d{2})")
 
@@ -112,6 +113,7 @@ def enrich_chunk_metadata(chunks: List) -> bool:
     return changed
 
 
+# [YEAR-AWARE CHANGE] Gom doc tu toan bo thu muc data theo cau truc nam hoc.
 def load_and_clean_all_docs() -> List[LangChainDocument]:
     docs: List[LangChainDocument] = []
     file_entries = discover_data_files()
@@ -285,6 +287,7 @@ def load_documents_from_file(filepath: str, filename: str) -> List:
         logger.error(f" Lỗi đọc {filename}: {str(e)[:60]}")
         return []
 
+# [YEAR-AWARE CHANGE] Cho phep tao lai collection khi phat hien file moi.
 def build_vectorstore_improved(recreate_collection: bool = False) -> Tuple[QdrantVectorStore, List]:
     logger.info(" Đang xây dựng vectorstore...")
     docs = load_and_clean_all_docs()
@@ -362,6 +365,7 @@ def load_vectorstore_improved() -> Tuple[QdrantVectorStore, List]:
                 except Exception as e:
                     logger.error(f" Không thể cập nhật {CHUNKS_PICKLE}: {e}")
 
+            # [YEAR-AWARE CHANGE] Neu co file moi theo nam hoc, rebuild de dong bo Qdrant.
             discovered_relpaths = {os.path.normpath(relpath) for _, _, relpath, _ in discover_data_files()}
             chunk_relpaths = collect_chunk_relpaths(chunks)
             missing_relpaths = sorted(discovered_relpaths - chunk_relpaths)

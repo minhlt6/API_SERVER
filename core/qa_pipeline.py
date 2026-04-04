@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 MAX_CONTEXT_CHARS = 12000
 MAX_DOC_CHARS = 1800 
 MAX_OUT_CHARS = 3000
+# [YEAR-AWARE CHANGE] Pattern nhan dien nam hoc trong cau hoi.
 ACADEMIC_YEAR_PATTERN = re.compile(r"\b(20\d{2})\s*[-_/]\s*(20\d{2})\b")
 SINGLE_YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
 
@@ -56,6 +57,7 @@ def normalize_academic_year(start_year: str, end_year: str) -> str:
     return f"{int(start_year):04d}-{int(end_year):04d}"
 
 
+# [YEAR-AWARE CHANGE] Trich xuat nam yeu cau tu cau hoi.
 def detect_requested_year(text: str) -> tuple[str, set]:
     """Phat hien nam hoc duoc nhac den trong cau hoi."""
     requested_range = ""
@@ -98,6 +100,7 @@ def infer_doc_academic_year(doc) -> str:
     return "ALL"
 
 
+# [YEAR-AWARE CHANGE] Loc tai lieu theo metadata nam hoc.
 def filter_docs_by_year(docs: List, requested_range: str, mentioned_years: set) -> List:
     if not requested_range and not mentioned_years:
         return docs
@@ -238,6 +241,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
 
     logger.info(f" CÂU HỎI GỐC: {message}")
     question = generate_standalone_query(message, history)
+    # [YEAR-AWARE CHANGE] Xac dinh pham vi nam ma nguoi dung yeu cau.
     requested_year_range, mentioned_years = detect_requested_year(f"{message}\n{question}")
     if requested_year_range:
         logger.info(f"Lọc theo năm học yêu cầu: {requested_year_range}")
@@ -272,6 +276,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
         yield "Không tìm thấy thông tin liên quan trong tài liệu."
         return
 
+    # [YEAR-AWARE CHANGE] Loc tap docs theo nam truoc khi rerank.
     year_filtered_docs = filter_docs_by_year(all_docs, requested_year_range, mentioned_years)
     if (requested_year_range or mentioned_years) and not year_filtered_docs:
         if requested_year_range:
@@ -292,6 +297,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
     for doc in final_docs:
         page = doc.metadata.get('page_number', 'N/A')
         file_name = doc.metadata.get('source_file') or doc.metadata.get('source')
+        # [YEAR-AWARE CHANGE] Gan nhan nam trong context de LLM bam dung nguon.
         doc_year = infer_doc_academic_year(doc)
         year_label = f"Năm {doc_year}" if doc_year != "ALL" else "Áp dụng nhiều năm"
         source = f"[{year_label} | {os.path.basename(file_name)} | Trang {page}]" if file_name else f"[{year_label} | Trang {page}]"
@@ -303,6 +309,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
     
     context = "\n\n---\n\n".join(context_parts)
     topic_hint = processed_data.get('topic') or processed_data.get('root_question') or question
+    # [YEAR-AWARE CHANGE] Truyen rang buoc nam vao prompt.
     if requested_year_range:
         year_scope = requested_year_range
     elif mentioned_years:
