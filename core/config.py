@@ -15,8 +15,8 @@ GEMINI_API_KEYS = os.getenv('GEMINI_API_KEYS', '').strip()
 # Name models
 LLM_MODEL = os.getenv('LLM_MODEL', 'llama-3.1-70b-versatile')
 FAST_LLM_MODEL = os.getenv('FAST_LLM_MODEL', 'llama-3.1-8b-instant')
-EMBED_MODEL = os.getenv('EMBED_MODEL', 'BAAI/bge-reranker-v2-m3')
-CROSS_ENCODER_MODEL = os.getenv('CROSS_ENCODER_MODEL', 'BAAI/bge-reranker-base')
+EMBED_MODEL = os.getenv('EMBED_MODEL', 'BAAI/bge-m3')
+CROSS_ENCODER_MODEL = os.getenv('CROSS_ENCODER_MODEL', 'BAAI/bge-reranker-v2-m3')
 
 # Chunking and retrieval settings
 CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '800'))
