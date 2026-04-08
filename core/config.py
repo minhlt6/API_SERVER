@@ -9,6 +9,26 @@ try:
 except Exception:
     pass
 
+
+def _is_hf_persistent_storage_available() -> bool:
+    data_dir = Path('/data')
+    return data_dir.exists() and os.access(data_dir, os.W_OK)
+
+
+_USE_HF_PERSISTENT_STORAGE = _is_hf_persistent_storage_available()
+
+
+def _default_upload_dir() -> str:
+    if _USE_HF_PERSISTENT_STORAGE:
+        return '/data/uploads'
+    return 'uploads'
+
+
+def _default_documents_db_url() -> str:
+    if _USE_HF_PERSISTENT_STORAGE:
+        return 'sqlite:////data/rag_metadata.db'
+    return 'sqlite:///./rag_metadata.db'
+
 GROQ_API_KEYS = os.getenv('GROQ_API_KEYS', os.getenv('GROQ_API_KEY', '')).strip()
 GEMINI_API_KEYS = os.getenv('GEMINI_API_KEYS', '').strip()
 
@@ -26,10 +46,10 @@ FINAL_TOP_K = int(os.getenv('FINAL_TOP_K', '3'))
 
 DATA_DIR = os.getenv('DATA_DIR', 'data')
 VECTOR_DIR = os.getenv('VECTOR_DIR', 'vectorstore')
-UPLOAD_DIR = os.getenv('UPLOAD_DIR', 'uploads')
+UPLOAD_DIR = os.getenv('UPLOAD_DIR', _default_upload_dir())
 MAX_UPLOAD_SIZE_MB = int(os.getenv('MAX_UPLOAD_SIZE_MB', '20'))
 QDRANT_COLLECTION = os.getenv('QDRANT_COLLECTION', 'rag_docs')
-DOCUMENTS_DATABASE_URL = os.getenv('DOCUMENTS_DATABASE_URL', 'sqlite:///./rag_metadata.db')
+DOCUMENTS_DATABASE_URL = os.getenv('DOCUMENTS_DATABASE_URL', _default_documents_db_url())
 
 # External service configs
 QDRANT_URL = os.getenv('QDRANT_URL')
