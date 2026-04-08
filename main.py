@@ -11,10 +11,12 @@ import asyncpg
 from starlette.concurrency import iterate_in_threadpool
 from qdrant_client import QdrantClient
 #Import các model và các hàm cần thiết từ core 
-from core.config import QDRANT_URL, QDRANT_API_KEY, DATABASE_URL
+from core.config import QDRANT_URL, QDRANT_API_KEY, DATABASE_URL, QDRANT_COLLECTION
+from core.document_db import init_document_db
 from core.vectorstore import build_vectorstore_improved, load_vectorstore_improved
 from core.retriever import HybridRetriever
 from core.qa_pipeline import ask_ai_improved, ask_ai_stream_delta
+from api.admin_documents_router import router as admin_documents_router
 
 # Hàm log lỗi an toàn
 logging.basicConfig(level=logging.INFO)
@@ -109,6 +111,8 @@ async def lifespan(app: FastAPI):
     logger.info("Đang khởi tạo API SERVER ...")
     pool = None
     try:
+        init_document_db()
+
         pool = await asyncpg.create_pool(
             dsn=DATABASE_URL,
             min_size=POOL_MIN_SIZE,
@@ -118,7 +122,7 @@ async def lifespan(app: FastAPI):
         await init_db_asyncpg(pool)
 
         client = QdrantClient(url = QDRANT_URL, api_key=QDRANT_API_KEY)
-        collection_name= "quy_che_db"
+        collection_name = QDRANT_COLLECTION
         if not client.collection_exists(collection_name):
             logger.warning(f"Chưa có collection {collection_name} trên Qdrant Cloud. Đang xây dựng vectorstore mới...")
             db, all_chunks= build_vectorstore_improved()
@@ -151,6 +155,7 @@ def get_runtime_components(request: Request):
 
 #Cấu hình FastAPI với middleware CORS và lifespan để quản lý trạng thái hệ thống
 app = FastAPI(lifespan=lifespan, title= "RAG API SERVER")
+app.include_router(admin_documents_router)
 
 #Cho phép truy cập từ mọi nguồn 
 allow_origins = [origin.strip() for origin in os.getenv("ALLOW_ORIGINS", "*").split(",") if origin.strip()]

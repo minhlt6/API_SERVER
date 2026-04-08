@@ -26,6 +26,10 @@ FINAL_TOP_K = int(os.getenv('FINAL_TOP_K', '3'))
 
 DATA_DIR = os.getenv('DATA_DIR', 'data')
 VECTOR_DIR = os.getenv('VECTOR_DIR', 'vectorstore')
+UPLOAD_DIR = os.getenv('UPLOAD_DIR', 'uploads')
+MAX_UPLOAD_SIZE_MB = int(os.getenv('MAX_UPLOAD_SIZE_MB', '20'))
+QDRANT_COLLECTION = os.getenv('QDRANT_COLLECTION', 'rag_docs')
+DOCUMENTS_DATABASE_URL = os.getenv('DOCUMENTS_DATABASE_URL', 'sqlite:///./rag_metadata.db')
 
 # External service configs
 QDRANT_URL = os.getenv('QDRANT_URL')

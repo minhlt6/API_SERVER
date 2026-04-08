@@ -8,7 +8,7 @@ from docx import Document
 from .models import embeddings
 from .text_utils import clean_text
 from .chunking import smart_chunking
-from .config import DATA_DIR, VECTOR_DIR, QDRANT_API_KEY, QDRANT_URL
+from .config import DATA_DIR, VECTOR_DIR, QDRANT_API_KEY, QDRANT_URL, QDRANT_COLLECTION
 from langchain_core.documents import Document as LangChainDocument
 import zipfile
 import xml.etree.ElementTree as ET
@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CHUNKS_PICKLE = os.path.join(VECTOR_DIR, "chunks.pkl")
-COLLECTION_NAME = "quy_che_db"
+COLLECTION_NAME = QDRANT_COLLECTION
 # [YEAR-AWARE CHANGE] Ho tro quet de quy va gan metadata nam hoc.
 SUPPORTED_FORMATS = ('.pdf', '.doc', '.docx')
 ACADEMIC_YEAR_PATTERN = re.compile(r"(20\d{2})\s*[-_]\s*(20\d{2})")
