@@ -123,7 +123,7 @@ def list_documents(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_document_db),
-) -> Dict[str, List[Dict[str, Any]]]:
+) -> Dict[str, Any]:
     records = (
         db.query(Document)
         .order_by(Document.created_at.desc())
