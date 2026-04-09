@@ -141,6 +141,18 @@ Toi thieu can co:
 - `DATABASE_URL`
 - `GROQ_API_KEYS` (hoac `GROQ_API_KEY`)
 
+De bat dong bo Supabase Storage (scheduler quet dinh ky):
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_STORAGE_BUCKET` (mac dinh: `file`)
+- `SUPABASE_SYNC_INTERVAL_SECONDS` (khuyen nghi 120; he thong tu gioi han trong khoang 60-180 giay)
+- `SUPABASE_ADMIN_SYNC_TOKEN` (du phong cho endpoint admin sync o cac giai doan tiep theo)
+- `SUPABASE_SYNC_SNAPSHOT_FILE` (mac dinh: `supabase_sync_snapshot.json`)
+- `SUPABASE_SYNC_ALLOWED_IPS` (danh sach IP duoc phep goi endpoint admin sync, cach nhau boi dau phay)
+- `SUPABASE_SYNC_ALLOW_PRIVATE_NETWORK` (mac dinh `true`; cho phep IP private/loopback)
+- `COLLECTION_ROUTER_TOP_N` (so collection active se tim khi query khong chi dinh nam hoc)
+
 Tuy chon:
 
 - `GEMINI_API_KEYS`

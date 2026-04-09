@@ -261,10 +261,16 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
 
     all_docs: List = []
     seen = set()
+    year_scope_hint = requested_year_range or (", ".join(sorted(mentioned_years)) if mentioned_years else None)
     for query in queries:
         #Giữ nguyên logic alpha ngành CNTT của Minh
         current_alpha = 0.4 if "CNTT" in query.upper() else 0.5
-        docs = hybrid_retriever.search(query, k=TOP_K_RESULTS, alpha=current_alpha)
+        docs = hybrid_retriever.search(
+            query,
+            k=TOP_K_RESULTS,
+            alpha=current_alpha,
+            year_scope=year_scope_hint,
+        )
         for doc in docs:
             content_hash = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()
             if content_hash not in seen:
@@ -276,19 +282,22 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
         yield "Không tìm thấy thông tin liên quan trong tài liệu."
         return
 
-    # [YEAR-AWARE CHANGE] Loc tap docs theo nam truoc khi rerank.
+    # [YEAR-AWARE CHANGE] Lọc theo năm nhưng vẫn fallback nếu không có tài liệu đúng năm.
+    year_scope = None
+    year_filter_requested = bool(requested_year_range or mentioned_years)
     year_filtered_docs = filter_docs_by_year(all_docs, requested_year_range, mentioned_years)
-    if (requested_year_range or mentioned_years) and not year_filtered_docs:
-        if requested_year_range:
-            yield f"Không tìm thấy thông tin phù hợp cho năm học {requested_year_range}."
-        else:
-            year_text = ", ".join(sorted(mentioned_years))
-            yield f"Không tìm thấy thông tin phù hợp cho năm bạn yêu cầu ({year_text})."
-        return
 
-    if year_filtered_docs and len(year_filtered_docs) != len(all_docs):
-        logger.info(f"Đã lọc theo năm: còn {len(year_filtered_docs)}/{len(all_docs)} documents")
-        all_docs = year_filtered_docs
+    if year_filter_requested:
+        if year_filtered_docs:
+            if len(year_filtered_docs) != len(all_docs):
+                logger.info(f"Đã lọc theo năm: còn {len(year_filtered_docs)}/{len(all_docs)} documents")
+            all_docs = year_filtered_docs
+            if requested_year_range:
+                year_scope = requested_year_range
+            elif mentioned_years:
+                year_scope = ", ".join(sorted(mentioned_years))
+        else:
+            logger.warning("Không tìm thấy tài liệu đúng năm yêu cầu, fallback sang tập tài liệu tổng quát")
 
     final_docs = advanced_rerank(question, all_docs, top_k=FINAL_TOP_K)
 
@@ -309,13 +318,6 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
     
     context = "\n\n---\n\n".join(context_parts)
     topic_hint = processed_data.get('topic') or processed_data.get('root_question') or question
-    # [YEAR-AWARE CHANGE] Truyen rang buoc nam vao prompt.
-    if requested_year_range:
-        year_scope = requested_year_range
-    elif mentioned_years:
-        year_scope = ", ".join(sorted(mentioned_years))
-    else:
-        year_scope = None
 
     prompt = create_advanced_prompt(question, context, question_type, topic_hint, year_scope=year_scope)
 
