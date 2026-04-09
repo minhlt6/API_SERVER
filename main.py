@@ -16,7 +16,6 @@ from core.config import (
     COLLECTION_ROUTER_TOP_N,
     DATABASE_URL,
     QDRANT_API_KEY,
-    QDRANT_COLLECTION,
     QDRANT_URL,
     SUPABASE_ADMIN_SYNC_TOKEN,
     SUPABASE_SERVICE_ROLE_KEY,
@@ -28,10 +27,8 @@ from core.config import (
 )
 from core.document_db import init_document_db
 from core.supabase_sync_service import SupabaseStorageSyncService, SupabaseSyncCoordinator
-from core.vectorstore import build_vectorstore_improved, load_vectorstore_improved
 from core.collection_router_retriever import CollectionRouterRetriever
 from core.models import embeddings
-from core.retriever import HybridRetriever
 from core.qa_pipeline import ask_ai_improved, ask_ai_stream_delta
 from api.admin_documents_router import router as admin_documents_router
 from api.admin_sync_router import router as admin_sync_router
@@ -143,22 +140,12 @@ async def lifespan(app: FastAPI):
         app.state.db_pool = pool
         await init_db_asyncpg(pool)
 
-        client = QdrantClient(url = QDRANT_URL, api_key=QDRANT_API_KEY)
-        collection_name = QDRANT_COLLECTION
-        if not client.collection_exists(collection_name):
-            logger.warning(f"Chưa có collection {collection_name} trên Qdrant Cloud. Đang xây dựng vectorstore mới...")
-            db, all_chunks= build_vectorstore_improved()
-        else :
-            logger.info(f"Đã tìm thấy collection {collection_name} trên Qdrant Cloud. Đang tải vectorstore...")
-            db, all_chunks = load_vectorstore_improved()
+        client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+        client.get_collections()
 
-        if db is None or not all_chunks:
-            raise RuntimeError("Không thể khởi tạo vectorstore. Kiểm tra log để biết chi tiết.")
-        logger.info("Đang khởi tạo retriever ...")
-
-        base_retriever = HybridRetriever(db, all_chunks)
+        logger.info("Đang khởi tạo retriever (Qdrant collection router)...")
         app.state.retriever = CollectionRouterRetriever(
-            base_retriever=base_retriever,
+            base_retriever=None,
             qdrant_client=client,
             embeddings_model=embeddings,
             top_n_collections=COLLECTION_ROUTER_TOP_N,
@@ -177,13 +164,36 @@ async def lifespan(app: FastAPI):
                     sync_service=sync_service,
                     poll_interval_seconds=SUPABASE_SYNC_INTERVAL_SECONDS,
                 )
+
+                app.state.supabase_sync_service = sync_service
+                app.state.supabase_sync_coordinator = sync_coordinator
+
+                initial_sync = await sync_coordinator.run_sync(
+                    trigger="startup:initial_sync",
+                    queue_if_locked=False,
+                )
+
+                if initial_sync.get("status") == "failed":
+                    logger.warning(
+                        "Supabase initial sync failed at startup. service will continue and retry in scheduler. error=%s",
+                        initial_sync.get("error"),
+                    )
+                else:
+                    summary = initial_sync.get("result") if isinstance(initial_sync.get("result"), dict) else {}
+                    logger.info(
+                        "Supabase initial sync completed. added=%s updated=%s deleted=%s failed=%s total_objects=%s",
+                        summary.get("added", 0),
+                        summary.get("updated", 0),
+                        summary.get("deleted", 0),
+                        summary.get("failed", 0),
+                        summary.get("total_objects", 0),
+                    )
+
                 sync_stop_event = asyncio.Event()
                 sync_task = asyncio.create_task(
                     sync_coordinator.run_polling_loop(stop_event=sync_stop_event)
                 )
 
-                app.state.supabase_sync_service = sync_service
-                app.state.supabase_sync_coordinator = sync_coordinator
                 app.state.supabase_sync_stop_event = sync_stop_event
                 app.state.supabase_sync_task = sync_task
                 logger.info(

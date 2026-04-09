@@ -141,19 +141,23 @@ class CollectionRouterRetriever:
                     break
             return deduplicated[:k]
 
-        try:
-            fallback_docs = self.base_retriever.search(
-                query,
-                k=candidate_k,
-                alpha=alpha,
-                year_scope=year_scope,
-            )
-        except TypeError:
-            fallback_docs = self.base_retriever.search(
-                query,
-                k=candidate_k,
-                alpha=alpha,
-            )
+        fallback_docs = []
+        if self.base_retriever is not None:
+            try:
+                fallback_docs = self.base_retriever.search(
+                    query,
+                    k=candidate_k,
+                    alpha=alpha,
+                    year_scope=year_scope,
+                )
+            except TypeError:
+                fallback_docs = self.base_retriever.search(
+                    query,
+                    k=candidate_k,
+                    alpha=alpha,
+                )
+            except Exception:
+                logger.exception("Base retriever fallback failed")
 
         deduplicated = []
         seen = set()
