@@ -1,13 +1,56 @@
 import hashlib
 import logging
-from typing import List
+import re
+from typing import List, Optional
 
 from langchain_core.documents import Document as LangChainDocument
+from qdrant_client.models import Filter, FieldCondition, HasIdCondition, MatchAny
 
 from .collection_utils import collection_matches_year
 from .document_db import SessionLocal, list_active_collection_names
 
 logger = logging.getLogger(__name__)
+
+
+def _build_year_filter(year_scope: Optional[str]) -> Optional[Filter]:
+    """Tạo Qdrant Filter từ year_scope (ví dụ: '2023-2024' hoặc '2023')."""
+    if not year_scope:
+        return None
+    
+    year_targets = []
+    year_scope = year_scope.strip()
+    
+    # Parse year_scope: có thể là "2023-2024" hoặc "2023"
+    if "-" in year_scope:
+        parts = year_scope.split("-")
+        for p in parts:
+            try:
+                year_targets.append(int(p.strip()))
+            except ValueError:
+                pass
+    else:
+        try:
+            year_targets.append(int(year_scope))
+        except ValueError:
+            pass
+    
+    if not year_targets:
+        return None
+    
+    # Sử dụng MatchAny để filter theo danh sách years
+    from qdrant_client.models import HasIdCondition as QdrantHasId
+    try:
+        return Filter(
+            must=[
+                FieldCondition(
+                    key="years",
+                    match=MatchAny(any=year_targets),
+                )
+            ]
+        )
+    except Exception:
+        # Fallback nếu MatchAny không work
+        return None
 
 
 class CollectionRouterRetriever:
@@ -61,7 +104,7 @@ class CollectionRouterRetriever:
 
         return active_collections[: self.top_n_collections]
 
-    def _search_target_collections(self, query: str, collections: List[str], limit: int) -> List:
+    def _search_target_collections(self, query: str, collections: List[str], limit: int, year_scope: Optional[str] = None) -> List:
         if not collections:
             return []
 
@@ -71,6 +114,11 @@ class CollectionRouterRetriever:
             logger.exception("Failed to embed query for collection routing")
             return []
 
+        # Tạo filter Qdrant nếu có year_scope
+        year_filter = _build_year_filter(year_scope)
+        if year_filter:
+            logger.info(f"Áp dụng Qdrant Filter cho year_scope: {year_scope}")
+
         scored_docs = []
         for collection_name in collections:
             try:
@@ -79,9 +127,10 @@ class CollectionRouterRetriever:
                     query_vector=query_vector,
                     limit=limit,
                     with_payload=True,
+                    query_filter=year_filter,  # NEW: Áp dụng Qdrant Filter native
                 )
-            except Exception:
-                logger.exception("Qdrant search failed for collection=%s", collection_name)
+            except Exception as e:
+                logger.exception(f"Qdrant search failed for collection={collection_name}: {e}")
                 continue
 
             for point in points:
@@ -95,9 +144,11 @@ class CollectionRouterRetriever:
                     "source_file": payload.get("filename") or payload.get("stored_name") or "",
                     "source_relpath": payload.get("object_path") or payload.get("path") or "",
                     "object_path": payload.get("object_path") or "",
+                    "source_url": payload.get("source_url") or "",  # NEW: Thêm source_url
                     "folder_key": payload.get("folder_key") or "",
                     "collection_name": collection_name,
                     "academic_year": payload.get("academic_year") or "",
+                    "years": payload.get("years") or [],  # NEW: Thêm years array
                     "chunk_index": payload.get("chunk_index"),
                     "page_number": payload.get("page_number"),
                 }
@@ -126,6 +177,7 @@ class CollectionRouterRetriever:
             query=query,
             collections=target_collections,
             limit=candidate_k,
+            year_scope=year_scope,  # NEW: Pass year_scope để Qdrant Filter
         )
 
         if year_scoped:

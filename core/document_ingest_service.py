@@ -1,5 +1,7 @@
+import hashlib
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -18,7 +20,7 @@ from qdrant_client.models import (
 )
 
 from .chunking import smart_chunking
-from .config import QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_URL
+from .config import QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_URL, SUPABASE_URL, SUPABASE_STORAGE_BUCKET
 from .document_db import Document, DocumentChunk, SessionLocal
 from .models import embeddings
 from .text_utils import clean_text
@@ -26,8 +28,36 @@ from .vectorstore import extract_academic_year, load_documents_from_file
 
 logger = logging.getLogger(__name__)
 
+ACTIVE_CODE_PATTERN = re.compile(r"(20\d{2})\s*[-_/]\s*(20\d{2})")
 _ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 _ENSURED_PAYLOAD_INDEX_COLLECTIONS = set()
+
+
+def _build_supabase_file_url(object_path: str) -> str:
+    """Tạo URL đầy đủ cho tài liệu từ Supabase Storage."""
+    if not SUPABASE_URL or not SUPABASE_STORAGE_BUCKET or not object_path:
+        return ""
+    
+    clean_path = object_path.lstrip("/")
+    return f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{clean_path}"
+
+
+def _extract_years_from_academic_year(academic_year: str) -> List[int]:
+    """Trích xuất danh sách năm từ chuỗi năm học (ví dụ '2023-2024' -> [2023, 2024])."""
+    if not academic_year or academic_year == "ALL":
+        return []
+    
+    years = []
+    match = ACTIVE_CODE_PATTERN.search(academic_year)
+    if match:
+        try:
+            start_year = int(match.group(1))
+            end_year = int(match.group(2))
+            years = [start_year, end_year]
+        except (ValueError, IndexError):
+            pass
+    
+    return years
 
 
 def _load_documents_for_ingest(path: str, extension: str) -> List[LangChainDocument]:
@@ -111,13 +141,28 @@ def _ensure_payload_indexes(client: QdrantClient, collection_name: str) -> None:
     if collection_name in _ENSURED_PAYLOAD_INDEX_COLLECTIONS:
         return
 
-    for field_name in ("object_path", "document_id"):
+    # KEYWORD indexes cho filtering nhanh
+    for field_name in ("object_path", "document_id", "content_hash"):
+        try:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field_name,
+                field_schema=PayloadSchemaType.KEYWORD,
+                wait=True,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create KEYWORD index for {field_name}: {e}")
+    
+    # INTEGER array index cho years
+    try:
         client.create_payload_index(
             collection_name=collection_name,
-            field_name=field_name,
-            field_schema=PayloadSchemaType.KEYWORD,
+            field_name="years",
+            field_schema=PayloadSchemaType.INTEGER,
             wait=True,
         )
+    except Exception as e:
+        logger.warning(f"Failed to create INTEGER index for years: {e}")
 
     _ENSURED_PAYLOAD_INDEX_COLLECTIONS.add(collection_name)
 
@@ -125,6 +170,163 @@ def _ensure_payload_indexes(client: QdrantClient, collection_name: str) -> None:
 def _is_missing_payload_index_error(error: Exception) -> bool:
     message = str(error)
     return "Index required but not found" in message
+
+
+def _get_or_create_deduplicated_points(
+    client: QdrantClient,
+    collection_name: str,
+    chunk_docs: List[LangChainDocument],
+    vectors: List,
+    source_object_ref: str,
+    document: Document,
+    source_updated_at: Optional[str],
+    source_etag: Optional[str],
+    created_at: str,
+    effective_source_path: Optional[str] = None,
+) -> tuple[List[PointStruct], List[DocumentChunk]]:
+    """
+    Tích hợp MD5 deduplication: nếu content hash trùng, cập nhật years array thay vì tạo mới.
+    """
+    points: List[PointStruct] = []
+    db_chunk_rows: List[DocumentChunk] = []
+    
+    for index, (chunk_doc, vector) in enumerate(zip(chunk_docs, vectors)):
+        chunk_text = chunk_doc.page_content
+        metadata = chunk_doc.metadata if isinstance(chunk_doc.metadata, dict) else {}
+        
+        # Tính content hash
+        content_hash = hashlib.md5(chunk_text.encode('utf-8')).hexdigest()
+        
+        # Trích académie năm học
+        academic_year = metadata.get("academic_year") or "ALL"
+        years = _extract_years_from_academic_year(academic_year)
+        
+        # Tạo source URL
+        source_url = _build_supabase_file_url(source_object_ref)
+        
+        # Kiểm tra xem content_hash đã tồn tại
+        existing_point_id = None
+        try:
+            existing_points = client.scroll(
+                collection_name=collection_name,
+                limit=1,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="content_hash",
+                            match=MatchValue(value=content_hash),
+                        )
+                    ]
+                ),
+            )
+            
+            if existing_points and existing_points[0]:
+                # Nếu tìm thấy point với hash trùng
+                existing_point_id = existing_points[0][0].id
+                logger.info(f"Tìm thấy content đã tồn tại hash={content_hash[:8]}..., sẽ cập nhật years")
+        except Exception as e:
+            logger.debug(f"Không thể tìm kiếm existing points: {e}")
+        
+        if existing_point_id:
+            # Merge years array
+            try:
+                existing_payload = client.retrieve(collection_name, [existing_point_id])[0].payload
+                existing_years = set(existing_payload.get("years", []))
+                merged_years = sorted(list(set(years) | existing_years))
+                
+                # Update payload với years mới
+                updated_payload = {
+                    **existing_payload,
+                    "years": merged_years,
+                    "document_id": document.id,  # Update document_id nếu tài liệu mới
+                    "source_updated_at": source_updated_at or existing_payload.get("source_updated_at"),
+                }
+                
+                client.update_payload(
+                    collection_name=collection_name,
+                    payload_update=updated_payload,
+                    points=[existing_point_id],
+                )
+                logger.info(f"Đã cập nhật years cho hash {content_hash[:8]}...: {merged_years}")
+            except Exception as e:
+                logger.warning(f"Lỗi cập nhật years cho point đã tồn tại: {e}, sẽ tạo point mới")
+                # Fallback: tạo point mới
+                point_id = str(uuid.uuid4())
+                payload = _build_payload(
+                    document, source_object_ref, chunk_text, index, metadata,
+                    academic_year, years, content_hash, source_url,
+                    source_updated_at, source_etag, created_at, effective_source_path
+                )
+                points.append(PointStruct(id=point_id, vector=vector, payload=payload))
+                db_chunk_rows.append(
+                    DocumentChunk(
+                        document_id=document.id,
+                        chunk_index=index,
+                        content_preview=chunk_text[:200],
+                        qdrant_point_id=point_id,
+                    )
+                )
+        else:
+            # Tạo point mới
+            point_id = str(uuid.uuid4())
+            payload = _build_payload(
+                document, source_object_ref, chunk_text, index, metadata,
+                academic_year, years, content_hash, source_url,
+                source_updated_at, source_etag, created_at, effective_source_path
+            )
+            points.append(PointStruct(id=point_id, vector=vector, payload=payload))
+            db_chunk_rows.append(
+                DocumentChunk(
+                    document_id=document.id,
+                    chunk_index=index,
+                    content_preview=chunk_text[:200],
+                    qdrant_point_id=point_id,
+                )
+            )
+    
+    return points, db_chunk_rows
+
+
+def _build_payload(
+    document: Document,
+    source_object_ref: str,
+    chunk_text: str,
+    index: int,
+    metadata: dict,
+    academic_year: str,
+    years: List[int],
+    content_hash: str,
+    source_url: str,
+    source_updated_at: Optional[str],
+    source_etag: Optional[str],
+    created_at: str,
+    effective_source_path: Optional[str] = None,
+) -> dict:
+    """Xây dựng payload dictionary cho point."""
+    source_name = os.path.basename(source_object_ref) if source_object_ref else document.stored_name
+    source_relpath = source_object_ref or source_name
+    
+    return {
+        "document_id": document.id,
+        "filename": document.original_name,
+        "stored_effective_source_path or name": document.stored_name,
+        "path": document.path,
+        "object_path": source_object_ref,
+        "folder_key": document.folder_key,
+        "collection_name": document.collection_name or "",
+        "source_file": metadata.get("source_file") or source_name,
+        "source_relpath": metadata.get("source_relpath") or source_relpath,
+        "source_url": source_url,
+        "academic_year": academic_year,
+        "years": years,
+        "content_hash": content_hash,
+        "page_number": metadata.get("page_number"),
+        "source_updated_at": source_updated_at,
+        "source_etag": source_etag,
+        "chunk_index": index,
+        "created_at": created_at,
+        "content": chunk_text,
+    }
 
 
 def _delete_existing_document_points(
@@ -242,41 +444,20 @@ def process_document_ingest(
         _delete_existing_document_points(client, target_collection, source_object_ref, document.id)
 
         created_at = datetime.now(timezone.utc).isoformat()
-        points: List[PointStruct] = []
-        db_chunk_rows: List[DocumentChunk] = []
-
-        for index, (chunk_doc, vector) in enumerate(zip(chunk_docs, vectors)):
-            chunk_text = chunk_doc.page_content
-            metadata = chunk_doc.metadata if isinstance(chunk_doc.metadata, dict) else {}
-            point_id = str(uuid.uuid4())
-            payload = {
-                "document_id": document.id,
-                "filename": document.original_name,
-                "stored_name": document.stored_name,
-                "path": effective_source_path or document.path,
-                "object_path": source_object_ref,
-                "folder_key": document.folder_key,
-                "collection_name": target_collection,
-                "source_file": metadata.get("source_file") or source_name,
-                "source_relpath": metadata.get("source_relpath") or source_relpath,
-                "academic_year": metadata.get("academic_year") or "ALL",
-                "page_number": metadata.get("page_number"),
-                "source_updated_at": source_updated_at,
-                "source_etag": source_etag,
-                "chunk_index": index,
-                "created_at": created_at,
-                "content": chunk_text,
-            }
-
-            points.append(PointStruct(id=point_id, vector=vector, payload=payload))
-            db_chunk_rows.append(
-                DocumentChunk(
-                    document_id=document.id,
-                    chunk_index=index,
-                    content_preview=chunk_text[:200],
-                    qdrant_point_id=point_id,
-                )
-            )
+        
+        # NEW: Sử dụng deduplication logic
+        points, db_chunk_rows = _get_or_create_deduplicated_points(
+            client=client,
+            collection_name=target_collection,
+            chunk_docs=chunk_docs,
+            vectors=vectors,
+            source_object_ref=source_object_ref,
+            document=document,
+            source_updated_at=source_updated_at,
+            source_etag=source_etag,
+            created_at=created_at,
+            effective_source_path=effective_source_path,
+        )
 
         client.upsert(collection_name=target_collection, points=points, wait=True)
 
