@@ -22,14 +22,10 @@ sentence-transformers>=3.0.0
 transformers>=4.40.0
 rank-bm25
 
-#LangChain Ecosystem 
-langchain>=0.2.0
-langchain-community>=0.2.0
-langchain-core>=0.2.0
-langchain-text-splitters>=0.2.0
-langchain-qdrant
-langchain-huggingface
-langchain-groq
+#LangChain Ecosystem (keep minimal to avoid resolver conflicts on Hugging Face)
+langchain-core>=0.2.0,<0.3.0
+langchain-text-splitters>=0.2.0,<0.3.0
+langchain-huggingface>=0.0.3,<0.1.0
 
 #File Loaders
 python-docx
