@@ -18,12 +18,6 @@ def _is_hf_persistent_storage_available() -> bool:
 _USE_HF_PERSISTENT_STORAGE = _is_hf_persistent_storage_available()
 
 
-def _default_upload_dir() -> str:
-    if _USE_HF_PERSISTENT_STORAGE:
-        return '/data/uploads'
-    return 'uploads'
-
-
 def _default_documents_db_url() -> str:
     if _USE_HF_PERSISTENT_STORAGE:
         return 'sqlite:////data/rag_metadata.db'
@@ -54,10 +48,6 @@ CHUNK_OVERLAP = int(os.getenv('CHUNK_OVERLAP', '150'))
 TOP_K_RESULTS = int(os.getenv('TOP_K_RESULTS', '10'))
 FINAL_TOP_K = int(os.getenv('FINAL_TOP_K', '5'))
 
-DATA_DIR = os.getenv('DATA_DIR', 'data')
-VECTOR_DIR = os.getenv('VECTOR_DIR', 'vectorstore')
-UPLOAD_DIR = os.getenv('UPLOAD_DIR', _default_upload_dir())
-MAX_UPLOAD_SIZE_MB = int(os.getenv('MAX_UPLOAD_SIZE_MB', '20'))
 QDRANT_COLLECTION = os.getenv('QDRANT_COLLECTION', 'rag_docs')
 DOCUMENTS_DATABASE_URL = os.getenv('DOCUMENTS_DATABASE_URL', _default_documents_db_url())
 

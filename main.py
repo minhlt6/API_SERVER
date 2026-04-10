@@ -29,9 +29,9 @@ from core.config import (
 from core.document_db import init_document_db
 from core.supabase_sync_service import SupabaseStorageSyncService, SupabaseSyncCoordinator
 from core.collection_router_retriever import CollectionRouterRetriever
+from core.vectorstore import build_vectorstore_improved, load_vectorstore_improved
 from core.models import embeddings
 from core.qa_pipeline import ask_ai_improved, ask_ai_stream_delta
-from api.admin_documents_router import router as admin_documents_router
 from api.admin_sync_router import router as admin_sync_router
 
 # Hàm log lỗi an toàn
@@ -170,42 +170,48 @@ async def lifespan(app: FastAPI):
                 app.state.supabase_sync_service = sync_service
                 app.state.supabase_sync_coordinator = sync_coordinator
 
-                startup_sync_task = asyncio.create_task(
-                    sync_coordinator.run_sync(
-                    trigger="startup:initial_sync",
-                    queue_if_locked=False,
-                    )
+                build_result = await build_vectorstore_improved(
+                    sync_coordinator=sync_coordinator,
+                    startup_wait_seconds=SUPABASE_STARTUP_SYNC_WAIT_SECONDS,
                 )
-                app.state.supabase_startup_sync_task = startup_sync_task
 
-                if SUPABASE_STARTUP_SYNC_WAIT_SECONDS > 0:
-                    try:
-                        initial_sync = await asyncio.wait_for(
-                            asyncio.shield(startup_sync_task),
-                            timeout=SUPABASE_STARTUP_SYNC_WAIT_SECONDS,
-                        )
-                        if initial_sync.get("status") == "failed":
-                            logger.warning(
-                                "Supabase initial sync failed at startup. service will continue and retry in scheduler. error=%s",
-                                initial_sync.get("error"),
-                            )
-                        else:
-                            summary = initial_sync.get("result") if isinstance(initial_sync.get("result"), dict) else {}
-                            logger.info(
-                                "Supabase initial sync completed. added=%s updated=%s deleted=%s failed=%s total_objects=%s",
-                                summary.get("added", 0),
-                                summary.get("updated", 0),
-                                summary.get("deleted", 0),
-                                summary.get("failed", 0),
-                                summary.get("total_objects", 0),
-                            )
-                    except asyncio.TimeoutError:
+                startup_sync_task = build_result.get("task")
+                app.state.supabase_startup_sync_task = startup_sync_task
+                initial_sync = build_result.get("initial_sync")
+                timed_out = bool(build_result.get("timed_out"))
+
+                if timed_out:
+                    if SUPABASE_STARTUP_SYNC_WAIT_SECONDS > 0:
                         logger.warning(
                             "Supabase initial sync is still running after %ss. API startup continues and sync will finish in background.",
                             SUPABASE_STARTUP_SYNC_WAIT_SECONDS,
                         )
+                    else:
+                        logger.info("Supabase initial sync chạy nền, không chặn startup (SUPABASE_STARTUP_SYNC_WAIT_SECONDS=0).")
+                elif isinstance(initial_sync, dict) and initial_sync.get("status") == "failed":
+                    logger.warning(
+                        "Supabase initial sync failed at startup. service will continue and retry in scheduler. error=%s",
+                        initial_sync.get("error"),
+                    )
                 else:
-                    logger.info("Supabase initial sync chạy nền, không chặn startup (SUPABASE_STARTUP_SYNC_WAIT_SECONDS=0).")
+                    summary = initial_sync.get("result") if isinstance(initial_sync, dict) and isinstance(initial_sync.get("result"), dict) else {}
+                    logger.info(
+                        "Supabase initial sync completed. added=%s updated=%s deleted=%s failed=%s total_objects=%s",
+                        summary.get("added", 0),
+                        summary.get("updated", 0),
+                        summary.get("deleted", 0),
+                        summary.get("failed", 0),
+                        summary.get("total_objects", 0),
+                    )
+
+                sync_state = load_vectorstore_improved(sync_coordinator)
+                if sync_state:
+                    logger.info(
+                        "Supabase sync state loaded. running=%s queued_events=%s last_sync_at=%s",
+                        sync_state.get("running"),
+                        sync_state.get("queued_events"),
+                        sync_state.get("last_sync_at"),
+                    )
 
                 sync_stop_event = asyncio.Event()
                 sync_task = asyncio.create_task(
@@ -274,7 +280,6 @@ def get_runtime_components(request: Request):
 
 #Cấu hình FastAPI với middleware CORS và lifespan để quản lý trạng thái hệ thống
 app = FastAPI(lifespan=lifespan, title= "RAG API SERVER")
-app.include_router(admin_documents_router)
 app.include_router(admin_sync_router)
 
 #Cho phép truy cập từ mọi nguồn 

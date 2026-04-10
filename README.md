@@ -44,24 +44,23 @@ Khi server bat dau, `lifespan` trong `main.py` chay theo thu tu:
 1. Doc bien moi truong tu `core/config.py`.
 2. Tao pool ket noi PostgreSQL (`asyncpg`) va dam bao bang `history` ton tai.
 3. Ket noi Qdrant Cloud.
-4. Neu collection `quy_che_db` chua ton tai: build vectorstore moi bang `core/vectorstore.py`.
-5. Neu da ton tai: tai vectorstore va chunks da luu.
-6. Khoi tao `HybridRetriever` trong `core/retriever.py`.
+4. Khoi tao `CollectionRouterRetriever` de tim theo cac collection dang active tren Qdrant.
+5. Khoi tao Supabase sync coordinator va chay `startup:initial_sync` thong qua `build_vectorstore_improved` trong `core/vectorstore.py` (co the cho toi da theo `SUPABASE_STARTUP_SYNC_WAIT_SECONDS` hoac chay nen).
+6. Bat polling sync dinh ky de dong bo thay doi add/update/delete tu Supabase.
 7. Danh dau app san sang (endpoint `/healthz` se bao `ready=true`).
 
-## 3) Luong ingest tai lieu (xay dung vectorstore)
+## 3) Luong ingest tai lieu (Supabase-only)
 
-Luong nay nam trong `core/vectorstore.py`:
+Luong nay duoc kich hoat boi scheduler/event sync trong `core/supabase_sync_service.py` va ingest trong `core/document_ingest_service.py`:
 
-1. Quet de quy file trong thu muc `data/` (`.pdf`, `.doc`, `.docx`), bao gom ca cac thu muc nam hoc nhu `So tay sinh vien 2022-2023/`.
-2. Trich xuat noi dung (giu bang tu PDF/DOCX).
-3. Lam sach text bang `core/text_utils.py`.
-4. Gan metadata `academic_year` cho tung tai lieu/chunk (neu tim thay mau nam hoc `YYYY-YYYY` trong duong dan hoac ten file).
-5. Chunk van ban thong minh bang `core/chunking.py`.
+1. Lay danh sach object tu Supabase Storage va diff voi snapshot de xac dinh `added/updated/deleted`.
+2. Download tung file can ingest ve file tam.
+3. Trich xuat noi dung tai lieu bang bo ham cu (`load_documents_from_file` trong `core/vectorstore.py`).
+4. Lam sach text bang bo ham cu (`clean_text` trong `core/text_utils.py`).
+5. Chunk van ban bang bo ham cu (`smart_chunking` trong `core/chunking.py`).
 6. Embedding chunks bang model trong `core/models.py`.
-7. Day vector len Qdrant collection `quy_che_db`.
-8. Luu ban sao chunks local vao `vectorstore/chunks.pkl` de startup nhanh hon.
-9. Neu phat hien file moi trong `data/` ma chunks cache chua co, he thong tu dong rebuild de dong bo du lieu.
+7. Upsert vector len Qdrant collection theo folder nam hoc.
+8. Xoa/ghi de theo `object_path` de dam bao incremental sync va tranh duplicate.
 
 ## 3.1) Hoi va tra loi theo nam hoc
 
@@ -120,7 +119,7 @@ Tuong tu luong `/chat`, khac o cho:
 
 ### Du lieu va vector
 
-- `core/vectorstore.py`: Load tai lieu, tien xu ly, chunking, embedding, tao/tai Qdrant vector store, luu chunks local.
+- `core/vectorstore.py`: Cung cap bo ham xu ly tai lieu cu (doc PDF/DOCX, metadata nam hoc) duoc tai su dung trong luong Supabase ingest, dong thoi chua `build_vectorstore_improved`/`load_vectorstore_improved` cho luong Supabase.
 - `core/chunking.py`: Cat van ban thong minh (uu tien giu cau truc bang/danh sach).
 - `core/text_utils.py`: Lam sach va chuan hoa noi dung text truoc khi embedding.
 - `core/models.py`: Khoi tao embedding model va cross-encoder model.
@@ -176,4 +175,4 @@ Sau khi chay, kiem tra:
 ## 9) Ghi chu
 
 - Trong Hugging Face Spaces, frontmatter o dau file README can duoc giu nguyen.
-- Lan chay dau co the cham do qua trinh doc tai lieu, chunk, embedding va day vector len Qdrant.
+- Lan chay dau co the cham do qua trinh initial sync tu Supabase (download + chunk + embedding + upsert Qdrant).

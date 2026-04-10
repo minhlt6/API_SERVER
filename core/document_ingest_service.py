@@ -1,13 +1,10 @@
 import logging
 import os
-import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from docx import Document as DocxDocument
-from fastapi.concurrency import run_in_threadpool
-from pypdf import PdfReader
+from langchain_core.documents import Document as LangChainDocument
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import (
@@ -20,78 +17,71 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from .config import CHUNK_OVERLAP, CHUNK_SIZE, QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_URL
+from .chunking import smart_chunking
+from .config import QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_URL
 from .document_db import Document, DocumentChunk, SessionLocal
 from .models import embeddings
+from .text_utils import clean_text
+from .vectorstore import extract_academic_year, load_documents_from_file
 
 logger = logging.getLogger(__name__)
 
 _ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
-_WHITESPACE_RE = re.compile(r"\s+")
-_TOKEN_RE = re.compile(r"\S+")
 
 
-def normalize_text(text: str) -> str:
-    if not text:
-        return ""
-
-    cleaned = text.replace("\x00", " ")
-    cleaned = cleaned.replace("\ufeff", " ")
-    cleaned = cleaned.replace("\u200b", " ").replace("\u200c", " ").replace("\u200d", " ")
-    cleaned = _WHITESPACE_RE.sub(" ", cleaned)
-    return cleaned.strip()
-
-
-def read_document_content(path: str, extension: str) -> str:
+def _load_documents_for_ingest(path: str, extension: str) -> List[LangChainDocument]:
     extension = extension.lower()
     if extension not in _ALLOWED_EXTENSIONS:
         raise ValueError(f"Unsupported file extension: {extension}")
 
-    if extension == ".pdf":
-        reader = PdfReader(path)
-        page_texts = [(page.extract_text() or "") for page in reader.pages]
-        return "\n".join(page_texts)
-
-    if extension == ".docx":
-        doc = DocxDocument(path)
-        paragraphs = [p.text for p in doc.paragraphs if p.text]
-
-        for table in doc.tables:
-            for row in table.rows:
-                row_cells = [cell.text.strip() for cell in row.cells]
-                if any(row_cells):
-                    paragraphs.append(" | ".join(row_cells))
-
-        return "\n".join(paragraphs)
-
-    with open(path, "r", encoding="utf-8", errors="ignore") as file:
-        return file.read()
+    return load_documents_from_file(path, os.path.basename(path))
 
 
-def chunk_text_by_tokens(text: str, chunk_size: int, overlap: int) -> List[str]:
-    if chunk_size <= 0:
-        raise ValueError("CHUNK_SIZE must be > 0")
-    if overlap < 0:
-        raise ValueError("CHUNK_OVERLAP must be >= 0")
-    if overlap >= chunk_size:
-        raise ValueError("CHUNK_OVERLAP must be smaller than CHUNK_SIZE")
+def _clean_documents_for_ingest(docs: List[LangChainDocument], source_name: str) -> List[LangChainDocument]:
+    cleaned_docs: List[LangChainDocument] = []
 
-    tokens = _TOKEN_RE.findall(text)
-    if not tokens:
+    for index, doc in enumerate(docs, 1):
+        cleaned = clean_text(doc.page_content)
+        if not cleaned or len(cleaned.split()) < 20:
+            continue
+
+        metadata = doc.metadata.copy() if isinstance(doc.metadata, dict) else {}
+        page_number = metadata.get("page")
+        if page_number is None:
+            page_number = index
+
+        metadata["source_file"] = source_name
+        metadata["page_number"] = page_number
+
+        cleaned_docs.append(
+            LangChainDocument(
+                page_content=cleaned,
+                metadata=metadata,
+            )
+        )
+
+    return cleaned_docs
+
+
+def chunk_documents_for_ingest(
+    path: str,
+    extension: str,
+    source_name: str,
+    source_relpath: str,
+) -> List[LangChainDocument]:
+    loaded_docs = _load_documents_for_ingest(path, extension)
+    cleaned_docs = _clean_documents_for_ingest(loaded_docs, source_name)
+    if not cleaned_docs:
         return []
 
-    step = chunk_size - overlap
-    chunks: List[str] = []
+    academic_year = extract_academic_year(source_relpath) or "ALL"
+    for doc in cleaned_docs:
+        metadata = doc.metadata.copy() if isinstance(doc.metadata, dict) else {}
+        metadata["source_relpath"] = source_relpath
+        metadata["academic_year"] = academic_year
+        doc.metadata = metadata
 
-    for start in range(0, len(tokens), step):
-        end = min(start + chunk_size, len(tokens))
-        piece = " ".join(tokens[start:end]).strip()
-        if piece:
-            chunks.append(piece)
-        if end >= len(tokens):
-            break
-
-    return chunks
+    return [doc for doc in smart_chunking(cleaned_docs) if (doc.page_content or "").strip()]
 
 
 def _parse_datetime(value: Optional[str]):
@@ -193,6 +183,7 @@ def process_document_ingest(
 
     effective_file_path = (file_path or "").strip()
     effective_source_path = (source_path or "").strip()
+    source_object_ref = (source_object_path or "").strip()
 
     try:
         document = db.query(Document).filter(Document.id == document_id).first()
@@ -204,18 +195,25 @@ def process_document_ingest(
         document.error_message = None
         db.commit()
 
-        ingest_file_path = effective_file_path or document.path
-        if not ingest_file_path:
-            raise ValueError("Document file path is missing for ingest.")
+        if not effective_file_path:
+            raise ValueError("Supabase-only ingest requires downloaded file_path.")
+        if not source_object_ref:
+            raise ValueError("Supabase-only ingest requires source_object_path.")
 
-        source_object_ref = (source_object_path or document.object_path or "").strip() or None
+        ingest_file_path = effective_file_path
 
         extension_source = source_object_ref or document.stored_name or ingest_file_path
         _, extension = os.path.splitext(extension_source)
 
-        raw_text = read_document_content(ingest_file_path, extension)
-        normalized = normalize_text(raw_text)
-        chunks = chunk_text_by_tokens(normalized, CHUNK_SIZE, CHUNK_OVERLAP)
+        source_name = os.path.basename(source_object_ref or document.stored_name or ingest_file_path)
+        source_relpath = source_object_ref or source_name
+        chunk_docs = chunk_documents_for_ingest(
+            path=ingest_file_path,
+            extension=extension,
+            source_name=source_name,
+            source_relpath=source_relpath,
+        )
+        chunks = [doc.page_content for doc in chunk_docs]
 
         if not chunks:
             raise ValueError("Document has no readable content after normalization.")
@@ -240,7 +238,9 @@ def process_document_ingest(
         points: List[PointStruct] = []
         db_chunk_rows: List[DocumentChunk] = []
 
-        for index, (chunk_text, vector) in enumerate(zip(chunks, vectors)):
+        for index, (chunk_doc, vector) in enumerate(zip(chunk_docs, vectors)):
+            chunk_text = chunk_doc.page_content
+            metadata = chunk_doc.metadata if isinstance(chunk_doc.metadata, dict) else {}
             point_id = str(uuid.uuid4())
             payload = {
                 "document_id": document.id,
@@ -250,6 +250,10 @@ def process_document_ingest(
                 "object_path": source_object_ref,
                 "folder_key": document.folder_key,
                 "collection_name": target_collection,
+                "source_file": metadata.get("source_file") or source_name,
+                "source_relpath": metadata.get("source_relpath") or source_relpath,
+                "academic_year": metadata.get("academic_year") or "ALL",
+                "page_number": metadata.get("page_number"),
                 "source_updated_at": source_updated_at,
                 "source_etag": source_etag,
                 "chunk_index": index,
@@ -362,8 +366,3 @@ def delete_vectors_for_object_path(collection_name: str, object_path: str) -> bo
         )
 
     return True
-
-
-async def run_document_ingest_task(document_id: str) -> None:
-    # Heavy ingest work runs in threadpool to keep event loop responsive.
-    await run_in_threadpool(process_document_ingest, document_id)
