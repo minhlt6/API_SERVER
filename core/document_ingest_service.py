@@ -9,7 +9,16 @@ from docx import Document as DocxDocument
 from fastapi.concurrency import run_in_threadpool
 from pypdf import PdfReader
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
+from qdrant_client.http.exceptions import UnexpectedResponse
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PayloadSchemaType,
+    PointStruct,
+    VectorParams,
+)
 
 from .config import CHUNK_OVERLAP, CHUNK_SIZE, QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_URL
 from .document_db import Document, DocumentChunk, SessionLocal
@@ -104,6 +113,23 @@ def _ensure_qdrant_collection(client: QdrantClient, vector_size: int, collection
             vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
         )
 
+    _ensure_payload_indexes(client, collection_name)
+
+
+def _ensure_payload_indexes(client: QdrantClient, collection_name: str) -> None:
+    for field_name in ("object_path", "document_id"):
+        client.create_payload_index(
+            collection_name=collection_name,
+            field_name=field_name,
+            field_schema=PayloadSchemaType.KEYWORD,
+            wait=True,
+        )
+
+
+def _is_missing_payload_index_error(error: Exception) -> bool:
+    message = str(error)
+    return "Index required but not found" in message
+
 
 def _delete_existing_document_points(
     client: QdrantClient,
@@ -130,11 +156,26 @@ def _delete_existing_document_points(
             ]
         )
 
-    client.delete(
-        collection_name=collection_name,
-        points_selector=point_filter,
-        wait=True,
-    )
+    try:
+        client.delete(
+            collection_name=collection_name,
+            points_selector=point_filter,
+            wait=True,
+        )
+    except UnexpectedResponse as error:
+        if not _is_missing_payload_index_error(error):
+            raise
+
+        logger.warning(
+            "Missing payload index detected while deleting old points in collection=%s. Rebuilding indexes and retrying once.",
+            collection_name,
+        )
+        _ensure_payload_indexes(client, collection_name)
+        client.delete(
+            collection_name=collection_name,
+            points_selector=point_filter,
+            wait=True,
+        )
 
 
 def process_document_ingest(
@@ -289,18 +330,37 @@ def delete_vectors_for_object_path(collection_name: str, object_path: str) -> bo
     if not client.collection_exists(collection_name=target_collection):
         return False
 
-    client.delete(
-        collection_name=target_collection,
-        points_selector=Filter(
-            must=[
-                FieldCondition(
-                    key="object_path",
-                    match=MatchValue(value=normalized_object_path),
-                )
-            ]
-        ),
-        wait=True,
+    point_filter = Filter(
+        must=[
+            FieldCondition(
+                key="object_path",
+                match=MatchValue(value=normalized_object_path),
+            )
+        ]
     )
+
+    try:
+        _ensure_payload_indexes(client, target_collection)
+        client.delete(
+            collection_name=target_collection,
+            points_selector=point_filter,
+            wait=True,
+        )
+    except UnexpectedResponse as error:
+        if not _is_missing_payload_index_error(error):
+            raise
+
+        logger.warning(
+            "Missing payload index detected while deleting object_path in collection=%s. Rebuilding indexes and retrying once.",
+            target_collection,
+        )
+        _ensure_payload_indexes(client, target_collection)
+        client.delete(
+            collection_name=target_collection,
+            points_selector=point_filter,
+            wait=True,
+        )
+
     return True
 
 
