@@ -147,6 +147,7 @@ De bat dong bo Supabase Storage (scheduler quet dinh ky):
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_STORAGE_BUCKET` (mac dinh: `file`)
 - `SUPABASE_SYNC_INTERVAL_SECONDS` (khuyen nghi 120; he thong tu gioi han trong khoang 60-180 giay)
+- `SUPABASE_STARTUP_SYNC_WAIT_SECONDS` (mac dinh: `5`; dat `0` de khong cho initial sync luc khoi dong, giup API len nhanh hon)
 - `SUPABASE_ADMIN_SYNC_TOKEN` (du phong cho endpoint admin sync o cac giai doan tiep theo)
 - `SUPABASE_SYNC_SNAPSHOT_FILE` (mac dinh: `supabase_sync_snapshot.json`)
 - `SUPABASE_SYNC_ALLOWED_IPS` (danh sach IP duoc phep goi endpoint admin sync, cach nhau boi dau phay)

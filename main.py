@@ -19,6 +19,7 @@ from core.config import (
     QDRANT_URL,
     SUPABASE_ADMIN_SYNC_TOKEN,
     SUPABASE_SERVICE_ROLE_KEY,
+    SUPABASE_STARTUP_SYNC_WAIT_SECONDS,
     SUPABASE_STORAGE_BUCKET,
     SUPABASE_SYNC_ENABLED,
     SUPABASE_SYNC_INTERVAL_SECONDS,
@@ -127,6 +128,7 @@ async def lifespan(app: FastAPI):
     pool = None
     app.state.supabase_sync_service = None
     app.state.supabase_sync_coordinator = None
+    app.state.supabase_startup_sync_task = None
     app.state.supabase_sync_stop_event = None
     app.state.supabase_sync_task = None
     try:
@@ -168,26 +170,42 @@ async def lifespan(app: FastAPI):
                 app.state.supabase_sync_service = sync_service
                 app.state.supabase_sync_coordinator = sync_coordinator
 
-                initial_sync = await sync_coordinator.run_sync(
+                startup_sync_task = asyncio.create_task(
+                    sync_coordinator.run_sync(
                     trigger="startup:initial_sync",
                     queue_if_locked=False,
+                    )
                 )
+                app.state.supabase_startup_sync_task = startup_sync_task
 
-                if initial_sync.get("status") == "failed":
-                    logger.warning(
-                        "Supabase initial sync failed at startup. service will continue and retry in scheduler. error=%s",
-                        initial_sync.get("error"),
-                    )
+                if SUPABASE_STARTUP_SYNC_WAIT_SECONDS > 0:
+                    try:
+                        initial_sync = await asyncio.wait_for(
+                            asyncio.shield(startup_sync_task),
+                            timeout=SUPABASE_STARTUP_SYNC_WAIT_SECONDS,
+                        )
+                        if initial_sync.get("status") == "failed":
+                            logger.warning(
+                                "Supabase initial sync failed at startup. service will continue and retry in scheduler. error=%s",
+                                initial_sync.get("error"),
+                            )
+                        else:
+                            summary = initial_sync.get("result") if isinstance(initial_sync.get("result"), dict) else {}
+                            logger.info(
+                                "Supabase initial sync completed. added=%s updated=%s deleted=%s failed=%s total_objects=%s",
+                                summary.get("added", 0),
+                                summary.get("updated", 0),
+                                summary.get("deleted", 0),
+                                summary.get("failed", 0),
+                                summary.get("total_objects", 0),
+                            )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Supabase initial sync is still running after %ss. API startup continues and sync will finish in background.",
+                            SUPABASE_STARTUP_SYNC_WAIT_SECONDS,
+                        )
                 else:
-                    summary = initial_sync.get("result") if isinstance(initial_sync.get("result"), dict) else {}
-                    logger.info(
-                        "Supabase initial sync completed. added=%s updated=%s deleted=%s failed=%s total_objects=%s",
-                        summary.get("added", 0),
-                        summary.get("updated", 0),
-                        summary.get("deleted", 0),
-                        summary.get("failed", 0),
-                        summary.get("total_objects", 0),
-                    )
+                    logger.info("Supabase initial sync chạy nền, không chặn startup (SUPABASE_STARTUP_SYNC_WAIT_SECONDS=0).")
 
                 sync_stop_event = asyncio.Event()
                 sync_task = asyncio.create_task(
@@ -213,8 +231,18 @@ async def lifespan(app: FastAPI):
         logger.exception("Lỗi khởi tạo hệ thống!", exc_info=True)
         raise RuntimeError("Lỗi khởi tạo hệ thống. Kiểm tra log để biết chi tiết.")
     finally :
+        startup_sync_task = getattr(app.state, "supabase_startup_sync_task", None)
         sync_stop_event = getattr(app.state, "supabase_sync_stop_event", None)
         sync_task = getattr(app.state, "supabase_sync_task", None)
+
+        if startup_sync_task is not None and not startup_sync_task.done():
+            startup_sync_task.cancel()
+            try:
+                await startup_sync_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.exception("Supabase startup sync task dừng với lỗi", exc_info=True)
 
         if sync_stop_event is not None:
             sync_stop_event.set()
@@ -227,6 +255,7 @@ async def lifespan(app: FastAPI):
 
         app.state.supabase_sync_service = None
         app.state.supabase_sync_coordinator = None
+        app.state.supabase_startup_sync_task = None
         app.state.supabase_sync_stop_event = None
         app.state.supabase_sync_task = None
 
