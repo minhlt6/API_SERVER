@@ -27,6 +27,7 @@ from .vectorstore import extract_academic_year, load_documents_from_file
 logger = logging.getLogger(__name__)
 
 _ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+_ENSURED_PAYLOAD_INDEX_COLLECTIONS = set()
 
 
 def _load_documents_for_ingest(path: str, extension: str) -> List[LangChainDocument]:
@@ -107,6 +108,9 @@ def _ensure_qdrant_collection(client: QdrantClient, vector_size: int, collection
 
 
 def _ensure_payload_indexes(client: QdrantClient, collection_name: str) -> None:
+    if collection_name in _ENSURED_PAYLOAD_INDEX_COLLECTIONS:
+        return
+
     for field_name in ("object_path", "document_id"):
         client.create_payload_index(
             collection_name=collection_name,
@@ -114,6 +118,8 @@ def _ensure_payload_indexes(client: QdrantClient, collection_name: str) -> None:
             field_schema=PayloadSchemaType.KEYWORD,
             wait=True,
         )
+
+    _ENSURED_PAYLOAD_INDEX_COLLECTIONS.add(collection_name)
 
 
 def _is_missing_payload_index_error(error: Exception) -> bool:
@@ -160,6 +166,7 @@ def _delete_existing_document_points(
             "Missing payload index detected while deleting old points in collection=%s. Rebuilding indexes and retrying once.",
             collection_name,
         )
+        _ENSURED_PAYLOAD_INDEX_COLLECTIONS.discard(collection_name)
         _ensure_payload_indexes(client, collection_name)
         client.delete(
             collection_name=collection_name,
@@ -358,6 +365,7 @@ def delete_vectors_for_object_path(collection_name: str, object_path: str) -> bo
             "Missing payload index detected while deleting object_path in collection=%s. Rebuilding indexes and retrying once.",
             target_collection,
         )
+        _ENSURED_PAYLOAD_INDEX_COLLECTIONS.discard(target_collection)
         _ensure_payload_indexes(client, target_collection)
         client.delete(
             collection_name=target_collection,

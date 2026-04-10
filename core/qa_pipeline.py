@@ -1,4 +1,4 @@
-from typing import List, Generator
+from typing import List, Generator, Optional
 import os, re, hashlib
 import logging 
 import groq
@@ -22,6 +22,15 @@ MAX_OUT_CHARS = 3000
 # [YEAR-AWARE CHANGE] Pattern nhan dien nam hoc trong cau hoi.
 ACADEMIC_YEAR_PATTERN = re.compile(r"\b(20\d{2})\s*[-_/]\s*(20\d{2})\b")
 SINGLE_YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
+_SOCIAL_KEYWORDS = {
+    "hello", "hi", "xin chao", "chao", "alo", "hey", "thanks", "cam on", "tam biet", "bye"
+}
+_PERSONAL_NON_DOMAIN_PATTERNS = [
+    re.compile(r"\bb(ạn|an)\s+c[oó]\s+bi[eế]t\s+t[oô]i\s+l[aà]\s+ai\b", re.IGNORECASE),
+    re.compile(r"\bb(ạn|an)\s+l[aà]\s+ai\b", re.IGNORECASE),
+    re.compile(r"\bai\s+t[aạ]o\s+ra\s+b(ạn|an)\b", re.IGNORECASE),
+    re.compile(r"\b(ăn|an)\s+c[oơ]m\s+ch(ưa|ua)\b", re.IGNORECASE),
+]
 
 # Quản lý API Keys cho Groq và Gemini với xoay tua tự động khi gặp lỗi hoặc hết hạn
 class AIProviderManager:
@@ -130,6 +139,44 @@ def sanitize_for_prompt(text: str) -> str:
     text = re.sub(r"\b\d{8,12}\b", "[ID]", text)  
     return text.strip()
 
+
+def _normalize_for_router(message: str) -> str:
+    compact = re.sub(r"[^\w\s]", " ", (message or "").lower(), flags=re.UNICODE)
+    compact = re.sub(r"\s+", " ", compact).strip()
+    return compact
+
+
+def _quick_non_domain_reply(message: str) -> Optional[str]:
+    normalized = _normalize_for_router(message)
+    if not normalized:
+        return None
+
+    if normalized in _SOCIAL_KEYWORDS:
+        return "Chào bạn. Mình hỗ trợ tra cứu quy chế đào tạo, bạn cần hỏi nội dung nào?"
+
+    for pattern in _PERSONAL_NON_DOMAIN_PATTERNS:
+        if pattern.search(normalized):
+            return "Mình không có thông tin cá nhân của bạn. Mình chỉ hỗ trợ giải đáp về quy chế đào tạo."
+
+    return None
+
+
+def _was_recently_prompted_for_year(history: List) -> bool:
+    if not history:
+        return False
+
+    reminder_snippet = "Vui lòng nhập kèm năm học để tra cứu nhanh hơn"
+    for item in reversed(history[-6:]):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("role") or "").strip().lower() != "assistant":
+            continue
+        content = str(item.get("content") or "")
+        if reminder_snippet in content:
+            return True
+
+    return False
+
 def generate_standalone_query(message: str, history: List) -> str:
     """Tái tạo câu hỏi từ lịch sử """
     if not history:
@@ -235,9 +282,20 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
         yield " Bạn chưa nhập câu hỏi."
         return
 
-    if message.strip().lower() in {"hello", "hi", "xin chào", "chào"}:
-        yield "Chào bạn 👋 Mình hỗ trợ tra cứu quy chế đào tạo. Bạn cần hỏi điều gì?"
+    quick_reply = _quick_non_domain_reply(message)
+    if quick_reply:
+        logger.info("Bỏ qua truy xuất tài liệu cho câu hỏi giao tiếp/ngoài phạm vi")
+        yield quick_reply
         return
+
+    initial_year_range, initial_mentioned_years = detect_requested_year(message)
+    if not initial_year_range and not initial_mentioned_years:
+        if not _was_recently_prompted_for_year(history):
+            logger.info("Yêu cầu người dùng bổ sung năm học trước khi truy vấn")
+            yield "Vui lòng nhập kèm năm học để tra cứu nhanh hơn (ví dụ: 2022-2023 hoặc 2023)."
+            return
+
+        logger.info("Người dùng chưa nhập năm sau khi đã được nhắc; fallback sang tìm kiếm toàn bộ")
 
     logger.info(f" CÂU HỎI GỐC: {message}")
     question = generate_standalone_query(message, history)

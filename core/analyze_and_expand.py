@@ -126,11 +126,15 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
             "expanded_queries": queries
         }
         
-        print(f"Phân loại: {final_result['question_type']} | Queries: {len(final_result['expanded_queries'])}")
+        logger.info(
+            "Phân loại: %s | Số truy vấn: %s",
+            final_result["question_type"],
+            len(final_result["expanded_queries"]),
+        )
         return final_result
 
     except Exception as e:
-        print(f" Lỗi phân tích ({e}). Mặc định chuyển sang tìm kiếm.")
+        logger.warning("Lỗi phân tích (%s). Mặc định chuyển sang tìm kiếm.", e)
         return {
             "question_type": "simple",
             "answer": None,
