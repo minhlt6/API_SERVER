@@ -448,10 +448,15 @@ def process_document_ingest(
             effective_source_path=effective_source_path,
         )
 
-        client.upsert(collection_name=target_collection, points=points, wait=True)
+        # ✅ Chỉ upsert nếu có points mới (không phải cập nhật existing)
+        if points:
+            client.upsert(collection_name=target_collection, points=points, wait=True)
 
         db.query(DocumentChunk).filter(DocumentChunk.document_id == document.id).delete()
-        db.bulk_save_objects(db_chunk_rows)
+        
+        # ✅ Chỉ bulk save nếu có chunks mới
+        if db_chunk_rows:
+            db.bulk_save_objects(db_chunk_rows)
 
         if effective_source_path:
             document.path = effective_source_path
