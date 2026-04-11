@@ -295,14 +295,48 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
         yield quick_reply
         return
 
-    # Phân tích câu hỏi
+    # Song song  : generate_standalone_query + analyze_and_expand_query cùng 1 lúc, không chờ đợi lẫn nhau, giảm độ trễ tổng thể
     logger.info(f"CÂU HỎI GỐC: {message}")
-    question = generate_standalone_query(message, history)
+    
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            # Call 1: Tạo standalone question từ history
+            future_standalone = executor.submit(
+                generate_standalone_query, 
+                message, 
+                history
+            )
+            
+            # Call 2: Phân loại & mở rộng (song parallel)
+            # Dùng message gốc luôn, LLM sẽ handle context từ message
+            future_classify = executor.submit(
+                analyze_and_expand_query,
+                message  # ✅ Dùng message gốc, không chờ standalone xong
+            )
+            
+            # Chờ cả 2 xong (timeout 15s)
+            question = future_standalone.result(timeout=15)
+            processed_data = future_classify.result(timeout=15)
+            
+    except concurrent.futures.TimeoutError:
+        logger.warning("Timeout khi gọi LLM song parallel, fallback...")
+        question = message
+        processed_data = {
+            "question_type": "simple",
+            "answer": None,
+            "expanded_queries": [message]
+        }
+    except Exception as e:
+        logger.warning(f"Lỗi parallel execution: {e}, fallback...")
+        question = message
+        processed_data = {
+            "question_type": "simple",
+            "answer": None,
+            "expanded_queries": [message]
+        }
+    
     requested_year_range, mentioned_years = detect_requested_year(f"{message}\n{question}")
     year_scope_hint = requested_year_range or (", ".join(sorted(mentioned_years)) if mentioned_years else None)
-
-    # Phân loại và mở rộng từ khóa
-    processed_data = analyze_and_expand_query(question)
 
     if processed_data.get("question_type") == "normal":
         ans = processed_data.get("answer") or "Chào bạn 👋 Mình hỗ trợ tra cứu quy chế đào tạo."
