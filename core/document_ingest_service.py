@@ -242,47 +242,36 @@ def _get_or_create_deduplicated_points(
                     "source_updated_at": source_updated_at or existing_payload.get("source_updated_at"),
                 }
                 
-                client.update_payload(
+                # ✅ Dùng set_payload để cập nhật payload
+                client.set_payload(
                     collection_name=collection_name,
-                    payload_update=updated_payload,
+                    payload=updated_payload,
                     points=[existing_point_id],
                 )
                 logger.info(f"Đã cập nhật years cho hash {content_hash[:8]}...: {merged_years}")
+                # ✅ QUAN TRỌNG: Bỏ qua tạo point mới - vì đã cập nhật point đã tồn tại
+                continue
             except Exception as e:
                 logger.warning(f"Lỗi cập nhật years cho point đã tồn tại: {e}, sẽ tạo point mới")
-                # Fallback: tạo point mới
-                point_id = str(uuid.uuid4())
-                payload = _build_payload(
-                    document, source_object_ref, chunk_text, index, metadata,
-                    academic_year, years, content_hash, source_url,
-                    source_updated_at, source_etag, created_at, effective_source_path
-                )
-                points.append(PointStruct(id=point_id, vector=vector, payload=payload))
-                db_chunk_rows.append(
-                    DocumentChunk(
-                        document_id=document.id,
-                        chunk_index=index,
-                        content_preview=chunk_text[:200],
-                        qdrant_point_id=point_id,
-                    )
-                )
-        else:
-            # Tạo point mới
-            point_id = str(uuid.uuid4())
-            payload = _build_payload(
-                document, source_object_ref, chunk_text, index, metadata,
-                academic_year, years, content_hash, source_url,
-                source_updated_at, source_etag, created_at, effective_source_path
+                # Fallback: tạo point mới nếu cập nhật thất bại
+                pass
+        
+        # Tạo point mới
+        point_id = str(uuid.uuid4())
+        payload = _build_payload(
+            document, source_object_ref, chunk_text, index, metadata,
+            academic_year, years, content_hash, source_url,
+            source_updated_at, source_etag, created_at, effective_source_path
+        )
+        points.append(PointStruct(id=point_id, vector=vector, payload=payload))
+        db_chunk_rows.append(
+            DocumentChunk(
+                document_id=document.id,
+                chunk_index=index,
+                content_preview=chunk_text[:200],
+                qdrant_point_id=point_id,
             )
-            points.append(PointStruct(id=point_id, vector=vector, payload=payload))
-            db_chunk_rows.append(
-                DocumentChunk(
-                    document_id=document.id,
-                    chunk_index=index,
-                    content_preview=chunk_text[:200],
-                    qdrant_point_id=point_id,
-                )
-            )
+        )
     
     return points, db_chunk_rows
 
