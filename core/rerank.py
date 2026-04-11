@@ -2,7 +2,7 @@ from typing import List
 import logging
 from .models import cross_encoder
 
-MAX_RERANK_CHARS = 1200
+MAX_RERANK_CHARS = 800
 logger = logging.getLogger(__name__)
 
 def advanced_rerank(question: str, docs: List, top_k: int = 5) -> List:
