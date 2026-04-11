@@ -85,7 +85,7 @@ Về vấn đề [Chủ đề], theo **Điều [Số]**, các trường hợp ng
     # Lấy ví dụ phù hợp (Fallback về simple nếu không khớp)
     example = examples.get(question_type, examples['simple'])
 
-    # 3. TOPIC INSTRUCTION: Rào chắn ngữ cảnh (Context Guardrail)
+    # TOPIC INSTRUCTION: Rào chắn ngữ cảnh (Context Guardrail)
     if topic:
         topic_instr = (
             f"\n\n **LƯU Ý ĐẶC BIỆT VỀ CHỦ ĐỀ MỞ RỘNG:**\n"
@@ -97,19 +97,17 @@ Về vấn đề [Chủ đề], theo **Điều [Số]**, các trường hợp ng
     else:
         topic_instr = ""
 
-    # [YEAR-AWARE CHANGE] Rang buoc cau tra loi theo nam hoc duoc hoi.
     if year_scope:
         year_instr = (
-            f"\n\n **RÀNG BUỘC NĂM HỌC (BẮT BUỘC):**\n"
-            f"- Người dùng đang hỏi trong phạm vi năm: **{year_scope}**.\n"
-            f"- Ưu tiên các đoạn có nhãn nguồn cùng năm trong context (ví dụ: [Năm 2022-2023 | ...]).\n"
-            f"- Nếu chưa đủ bằng chứng đúng năm, được phép dùng đoạn có nhãn 'Áp dụng nhiều năm' hoặc quy định gần nhất và phải ghi chú rõ phạm vi áp dụng.\n"
-            f"- Không kết luận 'không có dữ liệu' chỉ vì thiếu đúng nhãn năm nếu vẫn có quy định bao quát liên quan.\n"
+            f"\n\n **RÀNG BUỘC NĂM HỌC (LƯU Ý QUAN TRỌNG):**\n"
+            f"- Người dùng đang hỏi cho năm học: **{year_scope}**.\n"
+            f"- Nếu trong `TÀI LIỆU THAM KHẢO` có nội dung khớp với năm này, hãy dùng nó làm đáp án chính.\n"
+            f"- Nếu KHÔNG CÓ nội dung đúng năm, BẮT BUỘC SỬ DỤNG tài liệu có nhãn 'Áp dụng nhiều năm' hoặc quy chế gần nhất có trong context. Khi trả lời, hãy rào trước một câu thân thiện: *'Hệ thống hiện ghi nhận quy chế dùng chung/năm [Năm của tài liệu] quy định như sau...'*. TUYỆT ĐỐI KHÔNG TỪ CHỐI trả lời nếu vẫn có bản dùng chung.\n"
         )
     else:
         year_instr = ""
 
-    # 4. Gộp Prompt
+    # Gộp Prompt
     full_prompt = f"""{base_system}
 ----------------
 {example}

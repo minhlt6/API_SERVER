@@ -4,7 +4,7 @@ import logging
 import groq
 import google.generativeai as genai
 import json 
-
+import unicodedata
 from .models import llm
 from .config import TOP_K_RESULTS, FINAL_TOP_K
 from .rerank import advanced_rerank
@@ -140,10 +140,14 @@ def sanitize_for_prompt(text: str) -> str:
     return text.strip()
 
 
+def remove_accents(input_str: str) -> str:
+    s1 = unicodedata.normalize('NFKD', input_str).encode('ASCII', 'ignore').decode('utf-8')
+    return s1.lower()
+
 def _normalize_for_router(message: str) -> str:
-    compact = re.sub(r"[^\w\s]", " ", (message or "").lower(), flags=re.UNICODE)
-    compact = re.sub(r"\s+", " ", compact).strip()
-    return compact
+    compact = remove_accents(message or "")
+    compact = re.sub(r"[^\w\s]", " ", compact, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", compact).strip()
 
 
 def _quick_non_domain_reply(message: str) -> Optional[str]:
@@ -278,34 +282,25 @@ def ask_ai_improved(message: str, history: List, hybrid_retriever) -> Generator[
         yield full_response
 
 def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Generator[str, None, None]:
+    #  Kiểm tra rỗng
     if not message.strip():
-        yield " Bạn chưa nhập câu hỏi."
+        yield "Bạn chưa nhập câu hỏi."
         return
 
+    #  Xử lý các câu giao tiếp/xã giao nhanh (đã được sửa lỗi dấu tiếng Việt)
     quick_reply = _quick_non_domain_reply(message)
     if quick_reply:
         logger.info("Bỏ qua truy xuất tài liệu cho câu hỏi giao tiếp/ngoài phạm vi")
         yield quick_reply
         return
 
-    initial_year_range, initial_mentioned_years = detect_requested_year(message)
-    if not initial_year_range and not initial_mentioned_years:
-        if not _was_recently_prompted_for_year(history):
-            logger.info("Yêu cầu người dùng bổ sung năm học trước khi truy vấn")
-            yield "Vui lòng nhập kèm năm học để tra cứu nhanh hơn (ví dụ: 2022-2023 hoặc 2023)."
-            return
-
-        logger.info("Người dùng chưa nhập năm sau khi đã được nhắc; fallback sang tìm kiếm toàn bộ")
-
-    logger.info(f" CÂU HỎI GỐC: {message}")
+    # Phân tích câu hỏi
+    logger.info(f"CÂU HỎI GỐC: {message}")
     question = generate_standalone_query(message, history)
-    # [YEAR-AWARE CHANGE] Xac dinh pham vi nam ma nguoi dung yeu cau.
     requested_year_range, mentioned_years = detect_requested_year(f"{message}\n{question}")
-    if requested_year_range:
-        logger.info(f"Lọc theo năm học yêu cầu: {requested_year_range}")
-    elif mentioned_years:
-        logger.info(f"Lọc theo năm được nhắc tới: {sorted(mentioned_years)}")
+    year_scope_hint = requested_year_range or (", ".join(sorted(mentioned_years)) if mentioned_years else None)
 
+    # Phân loại và mở rộng từ khóa
     processed_data = analyze_and_expand_query(question)
 
     if processed_data.get("question_type") == "normal":
@@ -317,57 +312,55 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
     queries = processed_data['expanded_queries']
     logger.info(f"Các truy vấn tìm kiếm: {queries}")
 
-    all_docs: List = []
-    seen = set()
-    year_scope_hint = requested_year_range or (", ".join(sorted(mentioned_years)) if mentioned_years else None)
-    for query in queries:
-        #Giữ nguyên logic alpha ngành CNTT của Minh
-        current_alpha = 0.4 if "CNTT" in query.upper() else 0.5
-        docs = hybrid_retriever.search(
-            query,
-            k=TOP_K_RESULTS,
-            alpha=current_alpha,
-            year_scope=year_scope_hint,
-        )
-        for doc in docs:
-            content_hash = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()
-            if content_hash not in seen:
-                all_docs.append(doc)
-                seen.add(content_hash)
+    def fetch_docs(year_hint):
+        docs_temp = []
+        seen_temp = set()
+        for query in queries:
+            current_alpha = 0.4 if "CNTT" in query.upper() else 0.5
+            retrieved = hybrid_retriever.search(
+                query,
+                k=TOP_K_RESULTS,
+                alpha=current_alpha,
+                year_scope=year_hint
+            )
+            for doc in retrieved:
+                content_hash = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()
+                if content_hash not in seen_temp:
+                    docs_temp.append(doc)
+                    seen_temp.add(content_hash)
+        return docs_temp
+    # Tìm tài liệu 
+    
+    # Cố gắng tìm tài liệu khớp chính xác với năm học người dùng nhắc đến
+    all_docs = fetch_docs(year_scope_hint)
+
+    # Nếu lớp 1 tìm không ra hoặc người dùng hoàn toàn không nhập năm, hệ thống sẽ tự động hạ chuẩn, tìm trên toàn bộ cơ sở dữ liệu chung (ALL)
+    if not all_docs and year_scope_hint:
+        logger.info(f"Bộ lọc năm '{year_scope_hint}' quá gắt không ra kết quả. Tự động Fallback tìm trên bản chung...")
+        year_scope_hint = None  # Reset lại biến hint để quét toàn bộ VectorDB
+        all_docs = fetch_docs(None)
 
     logger.info(f"Tìm thấy tổng {len(all_docs)} documents.")
+    
+    # Xử lý lịch sự nếu Vector DB thực sự "bó tay"
     if not all_docs:
-        yield "Không tìm thấy thông tin liên quan trong tài liệu."
+        yield f"Dạ, hiện tại hệ thống không tìm thấy quy định nào liên quan đến vấn đề này. Bạn có thể dùng các từ khóa mang tính hành chính hơn được không ạ?"
         return
 
-    # [YEAR-AWARE CHANGE] Lọc theo năm nhưng vẫn fallback nếu không có tài liệu đúng năm.
-    year_scope = None
-    year_filter_requested = bool(requested_year_range or mentioned_years)
-    year_filtered_docs = filter_docs_by_year(all_docs, requested_year_range, mentioned_years)
-
-    if year_filter_requested:
-        if year_filtered_docs:
-            if len(year_filtered_docs) != len(all_docs):
-                logger.info(f"Đã lọc theo năm: còn {len(year_filtered_docs)}/{len(all_docs)} documents")
-            all_docs = year_filtered_docs
-            if requested_year_range:
-                year_scope = requested_year_range
-            elif mentioned_years:
-                year_scope = ", ".join(sorted(mentioned_years))
-        else:
-            logger.warning("Không tìm thấy tài liệu đúng năm yêu cầu, fallback sang tập tài liệu tổng quát")
-
+    # Rerank lại kết quả để chống ảo giác
     final_docs = advanced_rerank(question, all_docs, top_k=FINAL_TOP_K)
 
+    # Gắn nhãn năm học vào Context cho LLM đọc
     context_parts = []
     total_chars = 0
     for doc in final_docs:
         page = doc.metadata.get('page_number', 'N/A')
         file_name = doc.metadata.get('source_file') or doc.metadata.get('source')
-        # [YEAR-AWARE CHANGE] Gan nhan nam trong context de LLM bam dung nguon.
+        
         doc_year = infer_doc_academic_year(doc)
         year_label = f"Năm {doc_year}" if doc_year != "ALL" else "Áp dụng nhiều năm"
         source = f"[{year_label} | {os.path.basename(file_name)} | Trang {page}]" if file_name else f"[{year_label} | Trang {page}]"
+        
         block = f"{source}\n{doc.page_content}"
         if total_chars + len(block) > MAX_CONTEXT_CHARS:
             break
@@ -377,12 +370,14 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
     context = "\n\n---\n\n".join(context_parts)
     topic_hint = processed_data.get('topic') or processed_data.get('root_question') or question
 
-    prompt = create_advanced_prompt(question, context, question_type, topic_hint, year_scope=year_scope)
+    # Truyền year_scope_hint vào prompt để LLM biết đường rào đón
+    prompt = create_advanced_prompt(question, context, question_type, topic_hint, year_scope=year_scope_hint)
 
     logger.info("Đang tạo câu trả lời cuối cùng ...")
     
     success = False
-    # Thử với Groq 
+    
+    # Streaming qua Groq (Có xoay tua khi gặp lỗi 429)
     for _ in range(len(api_manager.groq_keys)):
         try:
             client = api_manager.get_groq_client()
@@ -404,7 +399,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
             logger.error(f"Lỗi Groq: {e}")
             break
             
-    # Dự phòng sang Gemini (nếu Groq lỗi hoặc hết key)
+    # Streaming dự phòng qua Gemini
     if not success:
         logger.warning("Chuyển sang Gemini ...")
         for _ in range(max(1, len(api_manager.gemini_keys))):
@@ -421,5 +416,6 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
                 api_manager.rotate_gemini()
                 logger.error(f"Lỗi Gemini: {e}")
 
+    # Báo lỗi khi cả 2 API đều sập
     if not success:
-        yield "Đã xảy ra lỗi hệ thống hoặc quá tải. Vui lòng thử lại sau giây lát!"
+        yield "Đã xảy ra lỗi hệ thống hoặc quá tải API. Vui lòng thử lại sau giây lát!"
