@@ -12,6 +12,7 @@ from .prompting import create_advanced_prompt
 from .retriever import HybridRetriever
 from .analyze_and_expand import analyze_and_expand_query
 from .llm_utils import safe_invoke, safe_stream
+import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
@@ -315,22 +316,24 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
     def fetch_docs(year_hint):
         docs_temp = []
         seen_temp = set()
-        for query in queries:
+        
+        def single_search(query):
             current_alpha = 0.4 if "CNTT" in query.upper() else 0.5
-            retrieved = hybrid_retriever.search(
-                query,
-                k=TOP_K_RESULTS,
-                alpha=current_alpha,
-                year_scope=year_hint
-            )
+            return hybrid_retriever.search(query, k=TOP_K_RESULTS, alpha=current_alpha, year_scope=year_hint)
+        
+        # Bắn đồng loạt các truy vấn cùng 1 lúc
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            results = executor.map(single_search, queries)
+            
+        for retrieved in results:
             for doc in retrieved:
+                # Tối ưu: Dùng id của Qdrant (nếu có) hoặc hash nội dung
                 content_hash = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()
                 if content_hash not in seen_temp:
                     docs_temp.append(doc)
                     seen_temp.add(content_hash)
         return docs_temp
     # Tìm tài liệu 
-    
     # Cố gắng tìm tài liệu khớp chính xác với năm học người dùng nhắc đến
     all_docs = fetch_docs(year_scope_hint)
 
