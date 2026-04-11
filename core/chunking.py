@@ -28,7 +28,7 @@ LIST_PATTERNS = [
     (r"(?m)^\s*•\s+", "<LIST_BULLET>"),
 ]
 
-
+# Tách và thêm các thẻ <table> để bảo vệ cấu trúc bảng khỏi bị chia cắt trong quá trình chunking.
 def extract_and_protect_tables(text: str) -> Tuple[str, dict]:
     table_pattern = re.compile(r"(?:\|.*\|[\r\n]+)+")
     tables = {}
@@ -41,7 +41,7 @@ def extract_and_protect_tables(text: str) -> Tuple[str, dict]:
     protected_text = re.sub(table_pattern, replace_table, text)
     return protected_text, tables
 
-
+# Bảo vệ các phần tử của danh sách khỏi bị chia cắt trong quá trình chunking
 def protect_lists(text: str) -> Tuple[str, dict]:
     placeholders = {}
     protected = text
@@ -55,14 +55,14 @@ def protect_lists(text: str) -> Tuple[str, dict]:
 
     return protected, placeholders
 
-
+# Khôi phục các phần từ được bảo vệ về nội dung gốc bằng cách thay thế các placeholder 
 def restore_placeholders(text: str, placeholders: dict) -> str:
     restored = text
     for placeholder, original in placeholders.items():
         restored = restored.replace(placeholder, original)
     return restored
 
-
+# Tách văn bản dựa trên cấu trúc được xây dựng từ đầu 
 def split_by_structure(text: str) -> List[str]:
     parts = [text]
 
@@ -91,7 +91,7 @@ def split_by_structure(text: str) -> List[str]:
 
     return [part for part in parts if part.strip()]
 
-
+# Hàm chính thực hiện chunking thông minh 
 def smart_chunking(docs: List) -> List:
     logger.info("Chunking theo cau truc + do dai...")
     length_splitter = RecursiveCharacterTextSplitter(
