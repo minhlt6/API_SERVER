@@ -187,8 +187,16 @@ class CollectionRouterRetriever:
                     if not docs_from_collection:
                         continue
                     
-                    # Get BM25 ranks
-                    bm25_results = bm25.get_top_n(tokenized_query, docs_from_collection, n=len(docs_from_collection))
+                    # Extract content strings for BM25 scoring
+                    content_for_bm25 = [doc.page_content for doc in docs_from_collection]
+                    
+                    # Build BM25 index for this subset and score
+                    if content_for_bm25:
+                        tokenized_subset = [content.lower().split() for content in content_for_bm25]
+                        bm25_subset = BM25Okapi(tokenized_subset, k1=1.5, b=0.5)
+                        bm25_results = bm25_subset.get_top_n(tokenized_query, content_for_bm25, n=len(content_for_bm25))
+                    else:
+                        bm25_results = []
                     
                     bm25_rank = 0
                     for doc in bm25_results:
