@@ -221,16 +221,16 @@ def generate_standalone_query(message: str, history: List) -> str:
             
     return message
 
-def ask_ai_improved(message: str, history: List, hybrid_retriever) -> Generator[str, None, None]:
+def ask_ai_improved(message: str, history: List, hybrid_retriever, year_scope: str | None = None) -> Generator[str, None, None]:
     full_response = ""
-    for delta in ask_ai_stream_delta(message, history, hybrid_retriever):
+    for delta in ask_ai_stream_delta(message, history, hybrid_retriever, year_scope=year_scope):
         full_response += delta
         if len(full_response) > MAX_OUT_CHARS:
             yield full_response[:MAX_OUT_CHARS] + "\n\n[Đã cắt bớt nội dung dài]"
             return
         yield full_response
 
-def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Generator[str, None, None]:
+def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, year_scope: str | None = None) -> Generator[str, None, None]:
     if not message.strip():
         yield " Bạn chưa nhập câu hỏi."
         return
@@ -261,7 +261,12 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever) -> Genera
 
     all_docs: List = []
     seen = set()
-    year_scope_hint = requested_year_range or (", ".join(sorted(mentioned_years)) if mentioned_years else None)
+    # Prefer passed year_scope over detected year
+    if year_scope:
+        year_scope_hint = year_scope
+        logger.info(f"Sử dụng year_scope từ cohort: {year_scope_hint}")
+    else:
+        year_scope_hint = requested_year_range or (", ".join(sorted(mentioned_years)) if mentioned_years else None)
     for query in queries:
         #Giữ nguyên logic alpha ngành CNTT của Minh
         current_alpha = 0.4 if "CNTT" in query.upper() else 0.5

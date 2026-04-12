@@ -14,6 +14,7 @@ from qdrant_client import QdrantClient
 #Import các model và các hàm cần thiết từ core 
 from core.config import (
     COLLECTION_ROUTER_TOP_N,
+    COHORT_TO_YEAR,
     DATABASE_URL,
     QDRANT_API_KEY,
     QDRANT_URL,
@@ -62,6 +63,7 @@ async def init_db_asyncpg(pool: asyncpg.Pool):
         # 2 lệnh ALTER TABLE để cập nhật bảng cũ nếu đã tồn tại
         await conn.execute('ALTER TABLE history ADD COLUMN IF NOT EXISTS user_id TEXT')
         await conn.execute('ALTER TABLE history ADD COLUMN IF NOT EXISTS title TEXT')
+        await conn.execute('ALTER TABLE history ADD COLUMN IF NOT EXISTS cohort_key TEXT')
         
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_history_session_id_id
@@ -99,7 +101,7 @@ async def get_history_async(pool: asyncpg.Pool, session_id: str):
         return []
 
 #  Hàm lưu lượt chat để hỗ trợ title và user_id
-async def save_turn_async(pool: asyncpg.Pool, session_id: str, user_msg: str, assistant_msg: str, user_id: str = None):
+async def save_turn_async(pool: asyncpg.Pool, session_id: str, user_msg: str, assistant_msg: str, user_id: str = None, cohort_key: str = None):
     try:
         async with pool.acquire() as conn:
             # Kiểm tra xem session này đã có tiêu đề chưa
@@ -110,12 +112,12 @@ async def save_turn_async(pool: asyncpg.Pool, session_id: str, user_msg: str, as
 
             async with conn.transaction():
                 await conn.execute(
-                    "INSERT INTO history (session_id, user_id, role, content, title) VALUES ($1, $2, $3, $4, $5)",
-                    session_id, user_id, "user", user_msg, title
+                    "INSERT INTO history (session_id, user_id, role, content, title, cohort_key) VALUES ($1, $2, $3, $4, $5, $6)",
+                    session_id, user_id, "user", user_msg, title, cohort_key
                 )
                 await conn.execute(
-                    "INSERT INTO history (session_id, user_id, role, content, title) VALUES ($1, $2, $3, $4, $5)",
-                    session_id, user_id, "assistant", assistant_msg, title
+                    "INSERT INTO history (session_id, user_id, role, content, title, cohort_key) VALUES ($1, $2, $3, $4, $5, $6)",
+                    session_id, user_id, "assistant", assistant_msg, title, cohort_key
                 )
     except Exception:
         logger.exception("Lỗi khi lưu lượt hội thoại:", exc_info=True)
@@ -299,6 +301,7 @@ class ChatRequest(BaseModel):
     session_id: str
     user_id: str = None
     message: str
+    cohort_key: str = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -339,19 +342,29 @@ async def chat_endpoint(payload: ChatRequest, request: Request):
 
     session_id = payload.session_id
     user_id = payload.user_id # Lấy user_id từ request
+    cohort_key = payload.cohort_key  # Lấy cohort_key từ request
+    
+    # Convert cohort_key to year_scope for collection routing
+    year_scope = None
+    if cohort_key and cohort_key in COHORT_TO_YEAR:
+        year_scope = COHORT_TO_YEAR[cohort_key]
+        logger.info(f"Sử dụng cohort: {cohort_key} -> năm học: {year_scope}")
+    elif cohort_key:
+        logger.warning(f"Cohort không hợp lệ: {cohort_key}")
+    
     history = await get_history_async(db_pool, session_id)
     
     # Tập hợp toàn bộ response từ generator
     full_response = ""
     try:
-        async for chunk in iterate_in_threadpool(ask_ai_improved(user_msg, history, retriever)):
+        async for chunk in iterate_in_threadpool(ask_ai_improved(user_msg, history, retriever, year_scope=year_scope)):
             full_response = chunk
     except Exception:
         logger.exception("Lỗi khi xử lý phản hồi từ AI:", exc_info=True)
         raise HTTPException(status_code=500, detail="Lỗi khi xử lý yêu cầu")
     
-    # Lưu lịch sử sau khi có response đầy đủ (Kèm theo user_id)
-    await save_turn_async(db_pool, session_id, user_msg, full_response, user_id)
+    # Lưu lịch sử sau khi có response đầy đủ (Kèm theo user_id và cohort_key)
+    await save_turn_async(db_pool, session_id, user_msg, full_response, user_id, cohort_key)
     
     return ChatResponse(response=full_response)
 
@@ -366,6 +379,16 @@ async def chat_stream_endpoint(payload: ChatRequest, request: Request):
 
     session_id = payload.session_id
     user_id = payload.user_id # Lấy user_id từ request
+    cohort_key = payload.cohort_key  # Lấy cohort_key từ request
+    
+    # Convert cohort_key to year_scope for collection routing
+    year_scope = None
+    if cohort_key and cohort_key in COHORT_TO_YEAR:
+        year_scope = COHORT_TO_YEAR[cohort_key]
+        logger.info(f"Sử dụng cohort: {cohort_key} -> năm học: {year_scope}")
+    elif cohort_key:
+        logger.warning(f"Cohort không hợp lệ: {cohort_key}")
+    
     history = await get_history_async(db_pool, session_id)
     
     async def event_stream_generator():
@@ -373,7 +396,7 @@ async def chat_stream_endpoint(payload: ChatRequest, request: Request):
         full_response = ""
         try:
             # ask_ai_stream_delta yield từng delta chunk (không cumulative)
-            async for delta_chunk in iterate_in_threadpool(ask_ai_stream_delta(user_msg, history, retriever)):
+            async for delta_chunk in iterate_in_threadpool(ask_ai_stream_delta(user_msg, history, retriever, year_scope=year_scope)):
                 full_response += delta_chunk
                 # Gửi SSE event với delta chunk
                 sse_data = json.dumps({"delta": delta_chunk, "done": False}, ensure_ascii=False)
@@ -382,8 +405,8 @@ async def chat_stream_endpoint(payload: ChatRequest, request: Request):
             # Gửi tín hiệu kết thúc
             yield 'data: {"delta": "", "done": true}\n\n'
             
-            # Lưu lịch sử sau khi stream xong (Kèm theo user_id)
-            await save_turn_async(db_pool, session_id, user_msg, full_response, user_id)
+            # Lưu lịch sử sau khi stream xong (Kèm theo user_id và cohort_key)
+            await save_turn_async(db_pool, session_id, user_msg, full_response, user_id, cohort_key)
             
         except Exception:
             logger.exception("Lỗi khi stream phản hồi từ AI:", exc_info=True)
