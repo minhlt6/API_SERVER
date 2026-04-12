@@ -86,6 +86,12 @@ class CollectionRouterRetriever:
                 logger.warning("No documents found in collection=%s for BM25 indexing", collection_name)
                 return None
             
+            # Filter out None values
+            points_list = [p for p in points_list if p is not None]
+            if not points_list:
+                logger.warning("No valid points found in collection=%s after filtering", collection_name)
+                return None
+            
             # Extract documents and tokenize for BM25
             docs_for_bm25 = []
             for point in points_list:
@@ -169,7 +175,11 @@ class CollectionRouterRetriever:
         bm25_ranked = {}  # {doc_key -> rank}
         if all_docs_dict:
             try:
-                tokenized_query = query.lower().split()
+                # Validate query is not empty
+                if not query.strip():
+                    logger.warning("Query is empty, skipping BM25 search")
+                else:
+                    tokenized_query = query.lower().split()
                 
                 # For each collection, use cached BM25 index
                 for collection_name in collections:
@@ -195,15 +205,21 @@ class CollectionRouterRetriever:
                         tokenized_subset = [content.lower().split() for content in content_for_bm25]
                         bm25_subset = BM25Okapi(tokenized_subset, k1=1.5, b=0.5)
                         bm25_results = bm25_subset.get_top_n(tokenized_query, content_for_bm25, n=len(content_for_bm25))
-                    else:
-                        bm25_results = []
-                    
-                    bm25_rank = 0
-                    for doc in bm25_results:
-                        doc_key = self._doc_key(doc)
-                        if doc_key not in bm25_ranked:
-                            bm25_rank += 1
-                            bm25_ranked[doc_key] = bm25_rank
+                        
+                        bm25_rank = 0
+                        for content in bm25_results:  # bm25_results contains strings
+                            # Find matching doc by content (handles duplicates)
+                            matched_doc = None
+                            for doc in docs_from_collection:
+                                if doc.page_content == content:
+                                    matched_doc = doc
+                                    break
+                            
+                            if matched_doc:
+                                doc_key = self._doc_key(matched_doc)
+                                if doc_key not in bm25_ranked:
+                                    bm25_rank += 1
+                                    bm25_ranked[doc_key] = bm25_rank
                             
             except Exception:
                 logger.exception("BM25 search failed, falling back to vector-only")
@@ -250,6 +266,10 @@ class CollectionRouterRetriever:
             limit=candidate_k,
             alpha=alpha,
         )
+        
+        # Log warning if no documents found
+        if not routed_docs:
+            logger.warning("No documents found for query=%s, cohort=%s", query[:50], cohort_key)
 
         if cohort_scoped:
             deduplicated = []
@@ -284,8 +304,11 @@ class CollectionRouterRetriever:
 
         deduplicated = []
         seen = set()
+        
+        # Safe handling of fallback_docs which might be None
+        fallback_docs_list = list(fallback_docs) if fallback_docs else []
 
-        for doc in routed_docs + list(fallback_docs or []):
+        for doc in routed_docs + fallback_docs_list:
             key = self._doc_key(doc)
             if key in seen:
                 continue
