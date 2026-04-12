@@ -348,6 +348,10 @@ async def chat_endpoint(payload: ChatRequest, request: Request):
     
     history = await get_history_async(db_pool, session_id)
     
+    # Nếu lịch sử < 2 messages, bỏ qua (không dùng context)
+    if len(history) < 2:
+        history = []
+    
     # Tập hợp toàn bộ response từ generator
     full_response = ""
     try:
@@ -379,6 +383,10 @@ async def chat_stream_endpoint(payload: ChatRequest, request: Request):
         logger.info(f"Sử dụng cohort: {cohort_key}")
     
     history = await get_history_async(db_pool, session_id)
+    
+    # Nếu lịch sử < 2 messages, bỏ qua (không dùng context)
+    if len(history) < 2:
+        history = []
     
     async def event_stream_generator():
         """Generator SSE - yield mỗi delta chunk và cuối cùng done=true"""

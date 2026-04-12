@@ -4,6 +4,8 @@ import logging
 import groq
 import google.generativeai as genai
 import json 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 
 from .models import llm
 from .config import TOP_K_RESULTS, FINAL_TOP_K
@@ -239,6 +241,53 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
         yield "Chào bạn 👋 Mình hỗ trợ tra cứu quy chế đào tạo. Bạn cần hỏi điều gì?"
         return
 
+    # [SKIP LLM] Nếu đây là câu hỏi đầu tiên (history trống), bỏ qua LLM, chỉ trả về các tài liệu liên quan
+    if not history or len(history) == 0:
+        logger.info(f"[FIRST TURN] CÂU HỎI GỐC: {message}")
+        question = message.strip()
+        processed_data = analyze_and_expand_query(question)
+        queries = processed_data.get('expanded_queries', [question])
+        
+        # Chỉ tìm kiếm docs, không gọi LLM
+        all_docs: List = []
+        seen = set()
+        seen_lock = Lock()
+        
+        def search_query(query: str):
+            current_alpha = 0.4 if "CNTT" in query.upper() else 0.5
+            return hybrid_retriever.search(
+                query,
+                k=TOP_K_RESULTS,
+                alpha=current_alpha,
+                cohort_key=cohort_key,
+            )
+        
+        with ThreadPoolExecutor(max_workers=min(3, len(queries))) as executor:
+            futures = {executor.submit(search_query, q): q for q in queries}
+            for future in futures:
+                try:
+                    docs = future.result(timeout=30)
+                    for doc in docs:
+                        content_hash = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()
+                        with seen_lock:
+                            if content_hash not in seen:
+                                seen.add(content_hash)
+                                all_docs.append(doc)
+                except Exception:
+                    logger.exception("Search error")
+        
+        # Format documents thành văn bản trả về
+        if all_docs:
+            result_text = "📚 **Các tài liệu liên quan:**\n\n"
+            for i, doc in enumerate(all_docs[:FINAL_TOP_K], 1):
+                source = doc.metadata.get("source") or "Không rõ"
+                content_preview = doc.page_content[:300] + ("..." if len(doc.page_content) > 300 else "")
+                result_text += f"{i}. **Nguồn:** {source}\n{content_preview}\n\n"
+            yield result_text + "\n💡 *Hãy đặt câu hỏi cụ thể hơn để được hỗ trợ tốt hơn!*"
+        else:
+            yield "❌ Không tìm thấy tài liệu liên quan. Vui lòng hãy đặt câu hỏi cụ thể hơn!"
+        return
+
     logger.info(f" CÂU HỎI GỐC: {message}")
     question = generate_standalone_query(message, history)
 
@@ -255,23 +304,33 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
 
     all_docs: List = []
     seen = set()
+    seen_lock = Lock()
     if cohort_key:
         logger.info(f"Sử dụng cohort_key: {cohort_key}")
     
-    for query in queries:
-        #Giữ nguyên logic alpha ngành CNTT của Minh
+    # Gửi song song các truy vấn đến Qdrant 
+    def search_query(query: str):
         current_alpha = 0.4 if "CNTT" in query.upper() else 0.5
-        docs = hybrid_retriever.search(
+        return hybrid_retriever.search(
             query,
             k=TOP_K_RESULTS,
             alpha=current_alpha,
             cohort_key=cohort_key,
         )
-        for doc in docs:
-            content_hash = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()
-            if content_hash not in seen:
-                all_docs.append(doc)
-                seen.add(content_hash)
+    
+    with ThreadPoolExecutor(max_workers=min(3, len(queries))) as executor:
+        futures = {executor.submit(search_query, q): q for q in queries}
+        for future in futures:
+            try:
+                docs = future.result(timeout=30)
+                for doc in docs:
+                    content_hash = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()
+                    with seen_lock:
+                        if content_hash not in seen:
+                            all_docs.append(doc)
+                            seen.add(content_hash)
+            except Exception as e:
+                logger.error(f"Lỗi khi search query '{futures[future]}': {e}")
 
     logger.info(f"Tìm thấy tổng {len(all_docs)} documents.")
     if not all_docs:
@@ -300,10 +359,12 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     logger.info("Đang tạo câu trả lời cuối cùng ...")
     
     success = False
-    # Thử với Groq 
-    for _ in range(len(api_manager.groq_keys)):
+    # Ưu tiên Groq (tiết kiệm token)
+    for _ in range(len(api_manager.groq_keys) if api_manager.groq_keys else 1):
         try:
             client = api_manager.get_groq_client()
+            if not client:
+                break
             stream = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
@@ -316,16 +377,16 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
             success = True
             break
         except Exception as e:
-            if "429" in str(e): # Lỗi Rate Limit
+            if "429" in str(e):  # Rate Limit
                 api_manager.rotate_groq()
                 continue
             logger.error(f"Lỗi Groq: {e}")
             break
-            
-    # Dự phòng sang Gemini (nếu Groq lỗi hoặc hết key)
+    
+    # Fallback sang Gemini nếu Groq lỗi
     if not success:
         logger.warning("Chuyển sang Gemini ...")
-        for _ in range(max(1, len(api_manager.gemini_keys))):
+        for _ in range(len(api_manager.gemini_keys) if api_manager.gemini_keys else 1):
             try:
                 genai.configure(api_key=api_manager.get_gemini_key())
                 model = genai.GenerativeModel('gemini-2.5-flash')
@@ -338,6 +399,6 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
             except Exception as e:
                 api_manager.rotate_gemini()
                 logger.error(f"Lỗi Gemini: {e}")
-
+    
     if not success:
         yield "Đã xảy ra lỗi hệ thống hoặc quá tải. Vui lòng thử lại sau giây lát!"

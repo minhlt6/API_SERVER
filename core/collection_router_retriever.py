@@ -3,6 +3,7 @@ import logging
 from typing import List
 
 from langchain_core.documents import Document as LangChainDocument
+from rank_bm25 import BM25Okapi
 
 from .collection_utils import collection_matches_cohort
 from .document_db import SessionLocal, list_active_collection_names
@@ -22,6 +23,7 @@ class CollectionRouterRetriever:
         self.qdrant_client = qdrant_client
         self.embeddings_model = embeddings_model
         self.top_n_collections = max(1, int(top_n_collections or 3))
+        self._bm25_cache = {}  # {collection_name -> BM25Okapi instance}
 
     @staticmethod
     def _doc_key(doc) -> str:
@@ -61,7 +63,57 @@ class CollectionRouterRetriever:
 
         return active_collections[: self.top_n_collections]
 
-    def _search_target_collections(self, query: str, collections: List[str], limit: int) -> List:
+    def _ensure_bm25_loaded(self, collection_name: str) -> BM25Okapi | None:
+        """Lazy load and cache BM25 index for a collection.
+        
+        First time: fetch all docs from Qdrant, build BM25, cache it (~0.3s)
+        Subsequent times: reuse from cache (~0.001s)
+        """
+        # Check if already cached
+        if collection_name in self._bm25_cache:
+            return self._bm25_cache[collection_name]
+        
+        try:
+            # Fetch ALL documents from collection (no query vector, get full corpus)
+            all_points = self.qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=10000,  # Batch size
+            )
+            
+            points_list = all_points[0] if isinstance(all_points, tuple) else all_points
+            
+            if not points_list:
+                logger.warning("No documents found in collection=%s for BM25 indexing", collection_name)
+                return None
+            
+            # Extract documents and tokenize for BM25
+            docs_for_bm25 = []
+            for point in points_list:
+                payload = point.payload if isinstance(point.payload, dict) else {}
+                content = str(payload.get("content") or "").strip()
+                if content:
+                    docs_for_bm25.append(content)
+            
+            if not docs_for_bm25:
+                logger.warning("No valid content found in collection=%s for BM25 indexing", collection_name)
+                return None
+            
+            # Build BM25 index
+            tokenized_docs = [doc.lower().split() for doc in docs_for_bm25]
+            bm25 = BM25Okapi(tokenized_docs, k1=1.5, b=0.5)
+            
+            # Cache it
+            self._bm25_cache[collection_name] = bm25
+            logger.info("BM25 index built and cached for collection=%s (docs=%d)", collection_name, len(docs_for_bm25))
+            
+            return bm25
+            
+        except Exception:
+            logger.exception("Failed to build BM25 index for collection=%s", collection_name)
+            return None
+
+    def _search_target_collections(self, query: str, collections: List[str], limit: int, alpha: float = 0.6) -> List:
+        """Hybrid search: BM25 + Vector + RRF (Option 2 with cached BM25)"""
         if not collections:
             return []
 
@@ -71,7 +123,11 @@ class CollectionRouterRetriever:
             logger.exception("Failed to embed query for collection routing")
             return []
 
-        scored_docs = []
+        # Step 1: Vector search (từ Qdrant)
+        all_docs_dict = {}  # {doc_key -> LangChainDocument}
+        vector_ranked = {}  # {doc_key -> rank}
+        
+        vector_rank = 0
         for collection_name in collections:
             try:
                 points = self.qdrant_client.search(
@@ -101,15 +157,73 @@ class CollectionRouterRetriever:
                     "chunk_index": payload.get("chunk_index"),
                     "page_number": payload.get("page_number"),
                 }
-                scored_docs.append(
-                    (
-                        float(getattr(point, "score", 0.0) or 0.0),
-                        LangChainDocument(page_content=content, metadata=metadata),
-                    )
-                )
+                doc = LangChainDocument(page_content=content, metadata=metadata)
+                doc_key = self._doc_key(doc)
+                
+                all_docs_dict[doc_key] = doc
+                if doc_key not in vector_ranked:
+                    vector_rank += 1
+                    vector_ranked[doc_key] = vector_rank
 
-        scored_docs.sort(key=lambda row: row[0], reverse=True)
-        return [doc for _, doc in scored_docs]
+        # Step 2: BM25 search (lexical) - using CACHED index
+        bm25_ranked = {}  # {doc_key -> rank}
+        if all_docs_dict:
+            try:
+                tokenized_query = query.lower().split()
+                
+                # For each collection, use cached BM25 index
+                for collection_name in collections:
+                    # Load cached BM25 (or build if first time)
+                    bm25 = self._ensure_bm25_loaded(collection_name)
+                    if bm25 is None:
+                        continue
+                    
+                    # Get BM25 scores for vector results
+                    docs_from_collection = [
+                        doc for doc in all_docs_dict.values()
+                        if doc.metadata.get("collection_name") == collection_name
+                    ]
+                    
+                    if not docs_from_collection:
+                        continue
+                    
+                    # Get BM25 ranks
+                    bm25_results = bm25.get_top_n(tokenized_query, docs_from_collection, n=len(docs_from_collection))
+                    
+                    bm25_rank = 0
+                    for doc in bm25_results:
+                        doc_key = self._doc_key(doc)
+                        if doc_key not in bm25_ranked:
+                            bm25_rank += 1
+                            bm25_ranked[doc_key] = bm25_rank
+                            
+            except Exception:
+                logger.exception("BM25 search failed, falling back to vector-only")
+
+        # Step 3: RRF combination (Reciprocal Rank Fusion)
+        alpha = max(0.0, min(1.0, float(alpha)))
+        bm25_weight = 1.0 - alpha
+        vector_weight = alpha
+        rrf_c = 60
+        
+        rrf_scores = {}
+        for doc_key, doc in all_docs_dict.items():
+            score = 0.0
+            
+            # Vector score
+            if doc_key in vector_ranked:
+                score += vector_weight / (rrf_c + vector_ranked[doc_key])
+            
+            # BM25 score
+            if doc_key in bm25_ranked:
+                score += bm25_weight / (rrf_c + bm25_ranked[doc_key])
+            
+            if score > 0:
+                rrf_scores[doc_key] = score
+        
+        # Sort by RRF score
+        sorted_results = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+        return [all_docs_dict[doc_key] for doc_key, _ in sorted_results[:limit]]
 
     def search(self, query: str, k: int = 10, alpha: float = 0.6, cohort_key: str | None = None) -> List:
         if k <= 0:
@@ -126,6 +240,7 @@ class CollectionRouterRetriever:
             query=query,
             collections=target_collections,
             limit=candidate_k,
+            alpha=alpha,
         )
 
         if cohort_scoped:
