@@ -14,13 +14,10 @@ def normalize_folder_key(folder_key: str) -> str:
 
 
 def build_collection_name(folder_key: str, prefix: str = "rag") -> str:
-    """
-    OPTIMIZED: Always return single collection name regardless of folder_key.
-    This ensures all documents go into ONE collection for deduplication and efficient querying.
-    Folder structure is preserved in payload metadata (folder_key), not as separate collections.
-    """
-    # ✅ Force single collection: always return "rag_docs"
-    return f"{prefix}_docs"
+    normalized = normalize_folder_key(folder_key)
+    base = f"{prefix}_{normalized}"
+    # Qdrant collection names should stay short and simple.
+    return base[:63]
 
 
 def extract_year_tokens(value: str) -> Set[str]:

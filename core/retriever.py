@@ -14,57 +14,6 @@ class HybridRetriever:
         print(" BM25 sẵn sàng!")
 
     @staticmethod
-    def _filter_by_year_scope(documents: List, year_scope: str | None) -> List:
-        """Filter documents theo year_scope (ví dụ: '2023-2024' hoặc '2023')."""
-        if not year_scope:
-            return documents
-        
-        filtered = []
-        year_targets = set()
-        
-        # Parse year_scope: có thể là "2023-2024" hoặc "2023"
-        if "-" in year_scope:
-            parts = year_scope.split("-")
-            try:
-                year_targets = {int(p.strip()) for p in parts if p.strip()}
-            except ValueError:
-                return documents
-        else:
-            try:
-                year_targets = {int(year_scope.strip())}
-            except ValueError:
-                return documents
-        
-        for doc in documents:
-            metadata = doc.metadata if isinstance(doc.metadata, dict) else {}
-            
-            # Check years array (mới)
-            doc_years = metadata.get("years", [])
-            if isinstance(doc_years, list) and any(y in year_targets for y in doc_years):
-                filtered.append(doc)
-                continue
-            
-            # Check academic_year string (cũ, để backwards compatibility)
-            academic_year = metadata.get("academic_year", "")
-            if academic_year and academic_year != "ALL":
-                doc_year_tokens = set()
-                for potential_year in academic_year.split("-"):
-                    try:
-                        doc_year_tokens.add(int(potential_year.strip()))
-                    except ValueError:
-                        pass
-                
-                if doc_year_tokens.intersection(year_targets):
-                    filtered.append(doc)
-                    continue
-            
-            # Include ALL documents không có year info
-            if not doc_years and academic_year == "ALL":
-                filtered.append(doc)
-        
-        return filtered if filtered else documents
-
-    @staticmethod
     def _doc_key(doc) -> str:
         metadata = doc.metadata if isinstance(doc.metadata, dict) else {}
         source = str(metadata.get("source_relpath") or metadata.get("source_file") or metadata.get("source") or "")
@@ -74,6 +23,7 @@ class HybridRetriever:
         return f"{source}|{page}|{digest}"
 
     def search(self, query: str, k: int = 10, alpha: float = 0.6, year_scope: str | None = None) -> List:
+        del year_scope
         if not self.documents or k <= 0:
             return []
 
@@ -84,15 +34,7 @@ class HybridRetriever:
         # Lấy top k từ BM25
         tokenized_query = query.lower().split()
         candidate_k = min(max(k * 4, k), len(self.documents))
-        
-        # Filter documents theo year_scope nếu có
-        docs_to_search = self.documents
-        if year_scope:
-            docs_to_search = self._filter_by_year_scope(self.documents, year_scope)
-            if not docs_to_search:
-                docs_to_search = self.documents  # Fallback nếu không có doc match year
-        
-        bm25_top_docs = self.bm25.get_top_n(tokenized_query, docs_to_search, n=candidate_k)
+        bm25_top_docs = self.bm25.get_top_n(tokenized_query, self.documents, n=candidate_k)
 
         bm25_ranked = {}
         all_retrieved = {}

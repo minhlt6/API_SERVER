@@ -37,10 +37,6 @@ from api.admin_sync_router import router as admin_sync_router
 # Hàm log lỗi an toàn
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("qdrant_client").setLevel(logging.WARNING)
-logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "20"))
 POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN_SIZE", "1"))
 POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "10"))
