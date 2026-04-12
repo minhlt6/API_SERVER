@@ -24,6 +24,37 @@ def extract_year_tokens(value: str) -> Set[str]:
     return {token for token in _YEAR_PATTERN.findall(value or "")}
 
 
+def extract_folder_key_from_collection_name(collection_name: str, prefix: str = "rag") -> str | None:
+    """
+    Extract folder_key from collection name.
+    E.g., 'rag_k63' -> 'k63', 'rag_2023_2024' -> '2023_2024'
+    Returns None if collection_name doesn't match the expected pattern.
+    """
+    if not collection_name:
+        return None
+    
+    prefix_with_underscore = f"{prefix}_"
+    if collection_name.startswith(prefix_with_underscore):
+        return collection_name[len(prefix_with_underscore):]
+    
+    return None
+
+
+def collection_matches_cohort(collection_name: str, cohort_key: str, prefix: str = "rag") -> bool:
+    """
+    Check if collection matches the given cohort_key.
+    E.g., collection='rag_k63', cohort_key='k63' -> True
+    """
+    if not cohort_key:
+        return False
+    
+    extracted = extract_folder_key_from_collection_name(collection_name, prefix)
+    if not extracted:
+        return False
+    
+    return extracted.lower() == cohort_key.lower()
+
+
 def collection_matches_year(collection_name: str, year_scope: str) -> bool:
     if not year_scope:
         return False

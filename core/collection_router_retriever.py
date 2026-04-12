@@ -4,7 +4,7 @@ from typing import List
 
 from langchain_core.documents import Document as LangChainDocument
 
-from .collection_utils import collection_matches_year
+from .collection_utils import collection_matches_cohort
 from .document_db import SessionLocal, list_active_collection_names
 
 logger = logging.getLogger(__name__)
@@ -45,18 +45,18 @@ class CollectionRouterRetriever:
         finally:
             db.close()
 
-    def _select_target_collections(self, year_scope: str | None) -> List[str]:
+    def _select_target_collections(self, cohort_key: str | None) -> List[str]:
         fetch_limit = max(self.top_n_collections * 4, 12)
         active_collections = self._get_active_collections(limit=fetch_limit)
         if not active_collections:
             return []
 
-        normalized_year_scope = (year_scope or "").strip()
-        if normalized_year_scope:
+        normalized_cohort = (cohort_key or "").strip()
+        if normalized_cohort:
             return [
                 collection_name
                 for collection_name in active_collections
-                if collection_matches_year(collection_name, normalized_year_scope)
+                if collection_matches_cohort(collection_name, normalized_cohort)
             ]
 
         return active_collections[: self.top_n_collections]
@@ -111,15 +111,15 @@ class CollectionRouterRetriever:
         scored_docs.sort(key=lambda row: row[0], reverse=True)
         return [doc for _, doc in scored_docs]
 
-    def search(self, query: str, k: int = 10, alpha: float = 0.6, year_scope: str | None = None) -> List:
+    def search(self, query: str, k: int = 10, alpha: float = 0.6, cohort_key: str | None = None) -> List:
         if k <= 0:
             return []
 
         candidate_k = max(k * 4, k)
-        year_scoped = bool((year_scope or "").strip())
-        target_collections = self._select_target_collections(year_scope)
+        cohort_scoped = bool((cohort_key or "").strip())
+        target_collections = self._select_target_collections(cohort_key)
 
-        if year_scoped and not target_collections:
+        if cohort_scoped and not target_collections:
             return []
 
         routed_docs = self._search_target_collections(
@@ -128,7 +128,7 @@ class CollectionRouterRetriever:
             limit=candidate_k,
         )
 
-        if year_scoped:
+        if cohort_scoped:
             deduplicated = []
             seen = set()
             for doc in routed_docs:
@@ -148,7 +148,7 @@ class CollectionRouterRetriever:
                     query,
                     k=candidate_k,
                     alpha=alpha,
-                    year_scope=year_scope,
+                    cohort_key=cohort_key,
                 )
             except TypeError:
                 fallback_docs = self.base_retriever.search(

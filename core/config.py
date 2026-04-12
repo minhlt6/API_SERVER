@@ -67,13 +67,6 @@ SUPABASE_SYNC_ALLOWED_IPS = [ip.strip() for ip in os.getenv('SUPABASE_SYNC_ALLOW
 SUPABASE_SYNC_ALLOW_PRIVATE_NETWORK = os.getenv('SUPABASE_SYNC_ALLOW_PRIVATE_NETWORK', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 COLLECTION_ROUTER_TOP_N = _bounded_int_from_env('COLLECTION_ROUTER_TOP_N', 3, 1, 20)
 
-# Cohort to academic year mapping
-COHORT_TO_YEAR = {
-    'k65': '2023-2024',
-    'k64': '2022-2023',
-    'k63': '2021-2022',
-}
-
 # - Context and output limits
 MAX_CONTEXT_CHARS = int(os.getenv('MAX_CONTEXT_CHARS', '12000'))
 MAX_OUT_CHARS = int(os.getenv('MAX_OUT_CHARS', '3000'))

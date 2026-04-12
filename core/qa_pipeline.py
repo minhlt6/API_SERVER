@@ -221,16 +221,16 @@ def generate_standalone_query(message: str, history: List) -> str:
             
     return message
 
-def ask_ai_improved(message: str, history: List, hybrid_retriever, year_scope: str | None = None) -> Generator[str, None, None]:
+def ask_ai_improved(message: str, history: List, hybrid_retriever, cohort_key: str | None = None) -> Generator[str, None, None]:
     full_response = ""
-    for delta in ask_ai_stream_delta(message, history, hybrid_retriever, year_scope=year_scope):
+    for delta in ask_ai_stream_delta(message, history, hybrid_retriever, cohort_key=cohort_key):
         full_response += delta
         if len(full_response) > MAX_OUT_CHARS:
             yield full_response[:MAX_OUT_CHARS] + "\n\n[Đã cắt bớt nội dung dài]"
             return
         yield full_response
 
-def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, year_scope: str | None = None) -> Generator[str, None, None]:
+def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_key: str | None = None) -> Generator[str, None, None]:
     if not message.strip():
         yield " Bạn chưa nhập câu hỏi."
         return
@@ -241,12 +241,6 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, year_scop
 
     logger.info(f" CÂU HỎI GỐC: {message}")
     question = generate_standalone_query(message, history)
-    # [YEAR-AWARE CHANGE] Xac dinh pham vi nam ma nguoi dung yeu cau.
-    requested_year_range, mentioned_years = detect_requested_year(f"{message}\n{question}")
-    if requested_year_range:
-        logger.info(f"Lọc theo năm học yêu cầu: {requested_year_range}")
-    elif mentioned_years:
-        logger.info(f"Lọc theo năm được nhắc tới: {sorted(mentioned_years)}")
 
     processed_data = analyze_and_expand_query(question)
 
@@ -261,12 +255,9 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, year_scop
 
     all_docs: List = []
     seen = set()
-    # Prefer passed year_scope over detected year
-    if year_scope:
-        year_scope_hint = year_scope
-        logger.info(f"Sử dụng year_scope từ cohort: {year_scope_hint}")
-    else:
-        year_scope_hint = requested_year_range or (", ".join(sorted(mentioned_years)) if mentioned_years else None)
+    if cohort_key:
+        logger.info(f"Sử dụng cohort_key: {cohort_key}")
+    
     for query in queries:
         #Giữ nguyên logic alpha ngành CNTT của Minh
         current_alpha = 0.4 if "CNTT" in query.upper() else 0.5
@@ -274,7 +265,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, year_scop
             query,
             k=TOP_K_RESULTS,
             alpha=current_alpha,
-            year_scope=year_scope_hint,
+            cohort_key=cohort_key,
         )
         for doc in docs:
             content_hash = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()
@@ -287,23 +278,6 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, year_scop
         yield "Không tìm thấy thông tin liên quan trong tài liệu."
         return
 
-    # [YEAR-AWARE CHANGE] Lọc theo năm nhưng vẫn fallback nếu không có tài liệu đúng năm.
-    year_scope = None
-    year_filter_requested = bool(requested_year_range or mentioned_years)
-    year_filtered_docs = filter_docs_by_year(all_docs, requested_year_range, mentioned_years)
-
-    if year_filter_requested:
-        if year_filtered_docs:
-            if len(year_filtered_docs) != len(all_docs):
-                logger.info(f"Đã lọc theo năm: còn {len(year_filtered_docs)}/{len(all_docs)} documents")
-            all_docs = year_filtered_docs
-            if requested_year_range:
-                year_scope = requested_year_range
-            elif mentioned_years:
-                year_scope = ", ".join(sorted(mentioned_years))
-        else:
-            logger.warning("Không tìm thấy tài liệu đúng năm yêu cầu, fallback sang tập tài liệu tổng quát")
-
     final_docs = advanced_rerank(question, all_docs, top_k=FINAL_TOP_K)
 
     context_parts = []
@@ -311,10 +285,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, year_scop
     for doc in final_docs:
         page = doc.metadata.get('page_number', 'N/A')
         file_name = doc.metadata.get('source_file') or doc.metadata.get('source')
-        # [YEAR-AWARE CHANGE] Gan nhan nam trong context de LLM bam dung nguon.
-        doc_year = infer_doc_academic_year(doc)
-        year_label = f"Năm {doc_year}" if doc_year != "ALL" else "Áp dụng nhiều năm"
-        source = f"[{year_label} | {os.path.basename(file_name)} | Trang {page}]" if file_name else f"[{year_label} | Trang {page}]"
+        source = f"[{os.path.basename(file_name)} | Trang {page}]" if file_name else f"[Trang {page}]"
         block = f"{source}\n{doc.page_content}"
         if total_chars + len(block) > MAX_CONTEXT_CHARS:
             break
@@ -324,7 +295,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, year_scop
     context = "\n\n---\n\n".join(context_parts)
     topic_hint = processed_data.get('topic') or processed_data.get('root_question') or question
 
-    prompt = create_advanced_prompt(question, context, question_type, topic_hint, year_scope=year_scope)
+    prompt = create_advanced_prompt(question, context, question_type, topic_hint)
 
     logger.info("Đang tạo câu trả lời cuối cùng ...")
     

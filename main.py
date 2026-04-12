@@ -14,7 +14,6 @@ from qdrant_client import QdrantClient
 #Import các model và các hàm cần thiết từ core 
 from core.config import (
     COLLECTION_ROUTER_TOP_N,
-    COHORT_TO_YEAR,
     DATABASE_URL,
     QDRANT_API_KEY,
     QDRANT_URL,
@@ -344,20 +343,15 @@ async def chat_endpoint(payload: ChatRequest, request: Request):
     user_id = payload.user_id # Lấy user_id từ request
     cohort_key = payload.cohort_key  # Lấy cohort_key từ request
     
-    # Convert cohort_key to year_scope for collection routing
-    year_scope = None
-    if cohort_key and cohort_key in COHORT_TO_YEAR:
-        year_scope = COHORT_TO_YEAR[cohort_key]
-        logger.info(f"Sử dụng cohort: {cohort_key} -> năm học: {year_scope}")
-    elif cohort_key:
-        logger.warning(f"Cohort không hợp lệ: {cohort_key}")
+    if cohort_key:
+        logger.info(f"Sử dụng cohort: {cohort_key}")
     
     history = await get_history_async(db_pool, session_id)
     
     # Tập hợp toàn bộ response từ generator
     full_response = ""
     try:
-        async for chunk in iterate_in_threadpool(ask_ai_improved(user_msg, history, retriever, year_scope=year_scope)):
+        async for chunk in iterate_in_threadpool(ask_ai_improved(user_msg, history, retriever, cohort_key=cohort_key)):
             full_response = chunk
     except Exception:
         logger.exception("Lỗi khi xử lý phản hồi từ AI:", exc_info=True)
@@ -381,13 +375,8 @@ async def chat_stream_endpoint(payload: ChatRequest, request: Request):
     user_id = payload.user_id # Lấy user_id từ request
     cohort_key = payload.cohort_key  # Lấy cohort_key từ request
     
-    # Convert cohort_key to year_scope for collection routing
-    year_scope = None
-    if cohort_key and cohort_key in COHORT_TO_YEAR:
-        year_scope = COHORT_TO_YEAR[cohort_key]
-        logger.info(f"Sử dụng cohort: {cohort_key} -> năm học: {year_scope}")
-    elif cohort_key:
-        logger.warning(f"Cohort không hợp lệ: {cohort_key}")
+    if cohort_key:
+        logger.info(f"Sử dụng cohort: {cohort_key}")
     
     history = await get_history_async(db_pool, session_id)
     
@@ -396,7 +385,7 @@ async def chat_stream_endpoint(payload: ChatRequest, request: Request):
         full_response = ""
         try:
             # ask_ai_stream_delta yield từng delta chunk (không cumulative)
-            async for delta_chunk in iterate_in_threadpool(ask_ai_stream_delta(user_msg, history, retriever, year_scope=year_scope)):
+            async for delta_chunk in iterate_in_threadpool(ask_ai_stream_delta(user_msg, history, retriever, cohort_key=cohort_key)):
                 full_response += delta_chunk
                 # Gửi SSE event với delta chunk
                 sse_data = json.dumps({"delta": delta_chunk, "done": False}, ensure_ascii=False)
