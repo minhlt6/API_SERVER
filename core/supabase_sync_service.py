@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import tempfile
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib import error, parse, request
@@ -320,6 +321,8 @@ class SupabaseStorageSyncService:
             ) from http_error
         except error.URLError as url_error:
             raise RuntimeError(f"Supabase connection error at {endpoint}: {url_error.reason}") from url_error
+        except TimeoutError as timeout_error:
+            raise RuntimeError(f"Supabase request timed out at {endpoint} (>{self.timeout_seconds}s): {timeout_error}") from timeout_error
 
     @staticmethod
     def _encode_object_path(object_path: str) -> str:
@@ -494,18 +497,38 @@ class SupabaseSyncCoordinator:
 
     def _execute_sync_cycle(self, trigger: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         del payload
-        scan_result = self.sync_service.scan_and_diff_snapshot()
-        apply_result = self._apply_incremental_changes(scan_result)
+        max_retries = 3
+        retry_backoff_seconds = 2
+        
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                scan_result = self.sync_service.scan_and_diff_snapshot()
+                apply_result = self._apply_incremental_changes(scan_result)
 
-        return {
-            "trigger": trigger,
-            "total_folders": int(scan_result.get("total_folders", 0)),
-            "total_objects": int(scan_result.get("total_objects", 0)),
-            "added": int(apply_result.get("added", 0)),
-            "updated": int(apply_result.get("updated", 0)),
-            "deleted": int(apply_result.get("deleted", 0)),
-            "failed": int(apply_result.get("failed", 0)),
-        }
+                return {
+                    "trigger": trigger,
+                    "total_folders": int(scan_result.get("total_folders", 0)),
+                    "total_objects": int(scan_result.get("total_objects", 0)),
+                    "added": int(apply_result.get("added", 0)),
+                    "updated": int(apply_result.get("updated", 0)),
+                    "deleted": int(apply_result.get("deleted", 0)),
+                    "failed": int(apply_result.get("failed", 0)),
+                }
+            except RuntimeError as error:
+                last_error = error
+                if "timed out" in str(error).lower() and attempt < max_retries - 1:
+                    wait_time = retry_backoff_seconds * (2 ** attempt)
+                    logger.warning(
+                        f"Supabase sync timeout on attempt {attempt + 1}/{max_retries}. "
+                        f"Retrying in {wait_time}s... Error: {error}"
+                    )
+                    time.sleep(wait_time)
+                    continue
+                raise
+        
+        if last_error:
+            raise last_error
 
     def _apply_incremental_changes(self, scan_result: Dict[str, Any]) -> Dict[str, int]:
         added_rows = [row for row in (scan_result.get("added") or []) if isinstance(row, dict)]
