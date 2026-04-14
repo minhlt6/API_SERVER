@@ -276,14 +276,23 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
                 except Exception:
                     logger.exception("Search error")
         
-        # Format documents thành văn bản trả về
+        # Format documents thành văn bản trả về với markdown đúng
         if all_docs:
-            result_text = "📚 **Các tài liệu liên quan:**\n\n"
+            result_text = "## 📚 Các tài liệu liên quan\n\n"
+            result_text += "Tôi tìm thấy những tài liệu sau có thể hữu ích cho bạn:\n\n"
+            
             for i, doc in enumerate(all_docs[:FINAL_TOP_K], 1):
                 source = doc.metadata.get("source") or "Không rõ"
-                content_preview = doc.page_content[:300] + ("..." if len(doc.page_content) > 300 else "")
-                result_text += f"{i}. **Nguồn:** {source}\n{content_preview}\n\n"
-            yield result_text + "\n💡 *Hãy đặt câu hỏi cụ thể hơn để được hỗ trợ tốt hơn!*"
+                content_preview = doc.page_content[:250] + ("..." if len(doc.page_content) > 250 else "")
+                # Định dạng markdown: bullet point, bold source
+                result_text += f"**{i}. Nguồn:** {source}\n"
+                result_text += f"{content_preview}\n\n"
+            
+            result_text += "---\n\n"
+            result_text += "**💡 Gợi ý:** Hãy đặt câu hỏi cụ thể hơn để tôi có thể hỗ trợ bạn tốt hơn!\n\n"
+            result_text += "*Ví dụ: \"Điều kiện để nhận học bổng là gì?\" thay vì \"Học bổng\"*"
+            
+            yield result_text
         else:
             yield "❌ Không tìm thấy tài liệu liên quan. Vui lòng hãy đặt câu hỏi cụ thể hơn!"
         return
@@ -340,6 +349,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     final_docs = advanced_rerank(question, all_docs, top_k=FINAL_TOP_K)
 
     context_parts = []
+    context_docs = []  # Lưu metadata để trích dẫn ở cuối
     total_chars = 0
     for doc in final_docs:
         page = doc.metadata.get('page_number', 'N/A')
@@ -350,6 +360,11 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
             break
         total_chars += len(block)
         context_parts.append(block)
+        # Lưu metadata cho phần tài liệu tham khảo ở cuối
+        context_docs.append({
+            'source': file_name or "Không rõ",
+            'page': page
+        })
     
     context = "\n\n---\n\n".join(context_parts)
     topic_hint = processed_data.get('topic') or processed_data.get('root_question') or question
@@ -402,3 +417,15 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     
     if not success:
         yield "Đã xảy ra lỗi hệ thống hoặc quá tải. Vui lòng thử lại sau giây lát!"
+        return
+    
+    # Thêm phần Tài liệu tham khảo ở cuối
+    if context_docs:
+        yield "\n\n---\n\n"
+        yield "## 📚 Tài liệu tham khảo\n\n"
+        seen_sources = set()
+        for i, doc_info in enumerate(context_docs, 1):
+            source_key = f"{doc_info['source']}_{doc_info['page']}"
+            if source_key not in seen_sources:
+                seen_sources.add(source_key)
+                yield f"- **{doc_info['source']}** (Trang {doc_info['page']})\n"
