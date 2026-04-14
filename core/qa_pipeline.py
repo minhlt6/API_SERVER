@@ -241,8 +241,9 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
         yield "Chào bạn 👋 Mình hỗ trợ tra cứu quy chế đào tạo. Bạn cần hỏi điều gì?"
         return
 
-    # [SKIP LLM] Nếu đây là câu hỏi đầu tiên (history trống), bỏ qua LLM, chỉ trả về các tài liệu liên quan
-    if not history or len(history) == 0:
+    # Chế độ chỉ liệt kê tài liệu cho câu hỏi đầu tiên (mặc định: tắt)
+    first_turn_docs_only = os.getenv("FIRST_TURN_DOCS_ONLY", "false").strip().lower() in {"1", "true", "yes", "on"}
+    if first_turn_docs_only and (not history or len(history) == 0):
         logger.info(f"[FIRST TURN] CÂU HỎI GỐC: {message}")
         question = message.strip()
         processed_data = analyze_and_expand_query(question)
