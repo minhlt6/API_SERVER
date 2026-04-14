@@ -241,63 +241,6 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
         yield "Chào bạn 👋 Mình hỗ trợ tra cứu quy chế đào tạo. Bạn cần hỏi điều gì?"
         return
 
-    # Chế độ chỉ liệt kê tài liệu cho câu hỏi đầu tiên (mặc định: tắt)
-    first_turn_docs_only = os.getenv("FIRST_TURN_DOCS_ONLY", "false").strip().lower() in {"1", "true", "yes", "on"}
-    if first_turn_docs_only and (not history or len(history) == 0):
-        logger.info(f"[FIRST TURN] CÂU HỎI GỐC: {message}")
-        question = message.strip()
-        processed_data = analyze_and_expand_query(question)
-        queries = processed_data.get('expanded_queries', [question])
-        
-        # Chỉ tìm kiếm docs, không gọi LLM
-        all_docs: List = []
-        seen = set()
-        seen_lock = Lock()
-        
-        def search_query(query: str):
-            current_alpha = 0.4 if "CNTT" in query.upper() else 0.5
-            return hybrid_retriever.search(
-                query,
-                k=TOP_K_RESULTS,
-                alpha=current_alpha,
-                cohort_key=cohort_key,
-            )
-        
-        with ThreadPoolExecutor(max_workers=min(3, len(queries))) as executor:
-            futures = {executor.submit(search_query, q): q for q in queries}
-            for future in futures:
-                try:
-                    docs = future.result(timeout=30)
-                    for doc in docs:
-                        content_hash = hashlib.sha256(doc.page_content.encode("utf-8")).hexdigest()
-                        with seen_lock:
-                            if content_hash not in seen:
-                                seen.add(content_hash)
-                                all_docs.append(doc)
-                except Exception:
-                    logger.exception("Search error")
-        
-        # Format documents thành văn bản trả về với markdown đúng
-        if all_docs:
-            result_text = "## 📚 Các tài liệu liên quan\n\n"
-            result_text += "Tôi tìm thấy những tài liệu sau có thể hữu ích cho bạn:\n\n"
-            
-            for i, doc in enumerate(all_docs[:FINAL_TOP_K], 1):
-                source = doc.metadata.get("source") or "Không rõ"
-                content_preview = doc.page_content[:250] + ("..." if len(doc.page_content) > 250 else "")
-                # Định dạng markdown: bullet point, bold source
-                result_text += f"**{i}. Nguồn:** {source}\n"
-                result_text += f"{content_preview}\n\n"
-            
-            result_text += "---\n\n"
-            result_text += "**💡 Gợi ý:** Hãy đặt câu hỏi cụ thể hơn để tôi có thể hỗ trợ bạn tốt hơn!\n\n"
-            result_text += "*Ví dụ: \"Điều kiện để nhận học bổng là gì?\" thay vì \"Học bổng\"*"
-            
-            yield result_text
-        else:
-            yield "❌ Không tìm thấy tài liệu liên quan. Vui lòng hãy đặt câu hỏi cụ thể hơn!"
-        return
-
     logger.info(f" CÂU HỎI GỐC: {message}")
     question = generate_standalone_query(message, history)
 
