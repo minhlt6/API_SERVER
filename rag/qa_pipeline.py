@@ -1,7 +1,7 @@
 from typing import List, Generator
 import os, re, hashlib
 import logging 
-import google.generativeai as genai
+from google import genai
 import json 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
