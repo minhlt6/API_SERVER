@@ -8,7 +8,7 @@ tenacity>=8.3.0
 
 # AI Providers
 groq>=0.9.0
-google-genai>=0.7.0
+google-genai
 
 # Database & Vector Store
 asyncpg>=0.29.0
