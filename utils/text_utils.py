@@ -7,8 +7,10 @@ def clean_text(text: str) -> str:
     # Nối các từ bị gãy ngang do xuống dòng 
     text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', text)
     
-    # \| và < > vào để bảo vệ khung Bảng Markdown và các Placeholder
-    text = re.sub(r'[^\w\s\.,;:!?\-$$\"\'\À-ỹ\n\|<>]', ' ', text)
+    # Loại bỏ các ký tự điều khiển không mong muốn, nhưng giữ lại các dấu câu thông thường
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    # Xóa các ký tự không nhìn thấy và các ký tự đặc biệt như zero-width space và BOM
+    text = text.replace('\u200b', '').replace('\ufeff', '')
     
     # Chuẩn hóa khoảng trắng 
     text = re.sub(r'[ \t]+', ' ', text)

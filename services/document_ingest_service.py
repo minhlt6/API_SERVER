@@ -3,7 +3,6 @@ import os
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
-
 from langchain_core.documents import Document as LangChainDocument
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -17,12 +16,12 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from .chunking import smart_chunking
-from .config import QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_URL
-from .document_db import Document, DocumentChunk, SessionLocal
-from .models import embeddings
-from .text_utils import clean_text
-from .vectorstore import extract_academic_year, load_documents_from_file
+from rag.chunking import smart_chunking
+from core.config import QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_URL
+from database.document_db import Document, DocumentChunk, SessionLocal
+from rag.models import embeddings
+from utils.text_utils import clean_text
+from rag.vectorstore import load_documents_from_file
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +73,9 @@ def chunk_documents_for_ingest(
     if not cleaned_docs:
         return []
 
-    academic_year = extract_academic_year(source_relpath) or "ALL"
     for doc in cleaned_docs:
         metadata = doc.metadata.copy() if isinstance(doc.metadata, dict) else {}
         metadata["source_relpath"] = source_relpath
-        metadata["academic_year"] = academic_year
         doc.metadata = metadata
 
     return [doc for doc in smart_chunking(cleaned_docs) if (doc.page_content or "").strip()]
@@ -252,7 +249,6 @@ def process_document_ingest(
                 "collection_name": target_collection,
                 "source_file": metadata.get("source_file") or source_name,
                 "source_relpath": metadata.get("source_relpath") or source_relpath,
-                "academic_year": metadata.get("academic_year") or "ALL",
                 "page_number": metadata.get("page_number"),
                 "source_updated_at": source_updated_at,
                 "source_etag": source_etag,

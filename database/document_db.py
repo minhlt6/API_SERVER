@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, create_engine, func, inspect, or_, text
 from sqlalchemy.orm import Session, declarative_base, relationship, sessionmaker
 
-from .config import DOCUMENTS_DATABASE_URL
+from core.config import DOCUMENTS_DATABASE_URL
 
 Base = declarative_base()
 logger = logging.getLogger(__name__)

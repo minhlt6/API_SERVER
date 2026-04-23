@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import re
 from typing import Any, Dict, List
 
 import pdfplumber
@@ -13,43 +12,60 @@ from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
 from langchain_core.documents import Document as LangChainDocument
 
-from .text_utils import clean_text
+from utils.text_utils import clean_text
 
 logger = logging.getLogger(__name__)
 
-ACADEMIC_YEAR_PATTERN = re.compile(r"(20\d{2})\s*[-_]\s*(20\d{2})")
-
-
-def normalize_academic_year(start_year: str, end_year: str) -> str:
-    return f"{int(start_year):04d}-{int(end_year):04d}"
-
-
-def extract_academic_year(text: str) -> str:
-    if not text:
-        return ""
-    match = ACADEMIC_YEAR_PATTERN.search(text)
-    if not match:
-        return ""
-    return normalize_academic_year(match.group(1), match.group(2))
-
-
-def table_to_markdown(data: List[List[str]]) -> str:
+def table_to_unrolled_text(data: List[List[str]], is_docx: bool = False) -> str:
+    
     if not data or len(data) < 2:
         return ""
 
-    header = [str(cell).replace("\n", " ").strip() if cell else "" for cell in data[0]]
-    separator = ["---"] * len(header)
-    markdown_lines = [
-        "| " + " | ".join(header) + " |",
-        "| " + " | ".join(separator) + " |",
-    ]
+    # Làm sạch dữ liệu ban đầu chuyển None thành chuỗi rỗng
+    cleaned_data = []
+    for row in data:
+        cleaned_row = [str(cell).strip() if cell else "" for cell in row]
+        cleaned_data.append(cleaned_row)
 
-    for row in data[1:]:
-        clean_row = [str(cell).replace("\n", "<br>").strip() if cell else "" for cell in row]
-        markdown_lines.append("| " + " | ".join(clean_row) + " |")
+    num_cols = len(cleaned_data[0])
+    header_row = cleaned_data[0]
 
-    return "\n".join(markdown_lines) + "\n\n"
+    # CHỈ CHẠY FORWARD FILL NẾU KHÔNG PHẢI FILE WORD
+    if not is_docx:
+        # 2. Kỹ thuật Forward-Fill cho khu vực Header (Xử lý gộp cột - Colspan)
+        # Giả định hàng đầu tiên chắc chắn là Header
+        for i in range(1, num_cols):
+            if not header_row[i] and header_row[i-1]:
+                header_row[i] = header_row[i-1] # Kéo giá trị từ trái sang phải
 
+        # 3. Kỹ thuật Forward-Fill cho khu vực Dữ liệu (Xử lý gộp hàng - Rowspan)
+        for r in range(1, len(cleaned_data)):
+            for c in range(num_cols):
+                # Nếu ô hiện tại rỗng, kéo giá trị từ ô ngay bên trên xuống
+                if not cleaned_data[r][c] and cleaned_data[r-1][c]:
+                    cleaned_data[r][c] = cleaned_data[r-1][c]
+
+    # 4. Trải phẳng bảng (Unrolling)
+    headers = cleaned_data[0]
+    unrolled_rows = []
+
+    for r in range(1, len(cleaned_data)):
+        row_values = cleaned_data[r]
+        row_text_parts = []
+        
+        # Chỉ ghép những ô có dữ liệu thực sự (khác Header)
+        for c in range(min(len(headers), len(row_values))):
+            header_val = headers[c]
+            cell_val = row_values[c]
+            
+            # Tránh lặp lại nếu dữ liệu vô tình giống hệt Header
+            if cell_val and cell_val != header_val:
+                row_text_parts.append(f"{header_val}: {cell_val}")
+                
+        if row_text_parts:
+            unrolled_rows.append("- " + " | ".join(row_text_parts))
+
+    return "\n" + "\n".join(unrolled_rows) + "\n\n"
 
 def read_pdf_with_tables(filepath: str) -> List[LangChainDocument]:
     docs: List[LangChainDocument] = []
@@ -61,9 +77,10 @@ def read_pdf_with_tables(filepath: str) -> List[LangChainDocument]:
                 table_texts: List[str] = []
                 if tables:
                     for table in tables:
-                        md_table = table_to_markdown(table)
-                        if md_table:
-                            table_texts.append(md_table)
+                        # Vẫn chạy Forward-Fill bình thường cho PDF
+                        unrolled_table = table_to_unrolled_text(table, is_docx=False)
+                        if unrolled_table:
+                            table_texts.append(unrolled_table)
 
                 full_content = text + "\n\n[BANG DU LIEU TRICH XUAT]:\n" + "\n".join(table_texts)
                 if full_content.strip():
@@ -74,10 +91,9 @@ def read_pdf_with_tables(filepath: str) -> List[LangChainDocument]:
                         )
                     )
     except Exception as error:
-        logger.error("Loi doc PDF (pdfplumber) %s: %s", os.path.basename(filepath), error)
+        logger.error("Lỗi đọc PDF  %s: %s", os.path.basename(filepath), error)
 
     return docs
-
 
 def iter_block_items(parent):
     if isinstance(parent, _Document):
@@ -91,7 +107,6 @@ def iter_block_items(parent):
             yield Paragraph(child, parent)
         elif isinstance(child, CT_Tbl):
             yield Table(child, parent)
-
 
 def read_docx_with_tables(filepath: str) -> str:
     doc = Document(filepath)
@@ -108,12 +123,12 @@ def read_docx_with_tables(filepath: str) -> str:
                     row_data.append(clean_text(cell.text))
                 table_data.append(row_data)
 
-            md_table = table_to_markdown(table_data)
-            if md_table:
-                full_text.append(f"\n{md_table}\n")
+            # CẮT FORWARD-FILL TẠI ĐÂY BẰNG is_docx=True
+            unrolled_table = table_to_unrolled_text(table_data, is_docx=True)
+            if unrolled_table:
+                full_text.append(f"\n{unrolled_table}\n")
 
     return "\n".join(full_text)
-
 
 def load_documents_from_file(filepath: str, filename: str) -> List[LangChainDocument]:
     docs: List[LangChainDocument] = []
@@ -140,12 +155,10 @@ def load_documents_from_file(filepath: str, filename: str) -> List[LangChainDocu
         logger.error("Loi doc %s: %s", filename, str(error)[:120])
         return []
 
-
 async def build_vectorstore_improved(
     sync_coordinator: Any,
     startup_wait_seconds: int = 5,
 ) -> Dict[str, Any]:
-    """Supabase build step: trigger one initial sync and optionally wait for completion."""
     if sync_coordinator is None:
         raise ValueError("sync_coordinator is required")
 
@@ -180,12 +193,9 @@ async def build_vectorstore_improved(
             "timed_out": True,
         }
 
-
 def load_vectorstore_improved(sync_coordinator: Any) -> Dict[str, Any]:
-    """Supabase load step: return current coordinator health snapshot."""
     if sync_coordinator is None:
         return {}
-
     try:
         state = sync_coordinator.get_health_snapshot()
         return state if isinstance(state, dict) else {}

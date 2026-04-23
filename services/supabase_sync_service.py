@@ -2,15 +2,14 @@ import asyncio
 import json
 import logging
 import os
-import re
 import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib import error, parse, request
 
-from .collection_utils import build_collection_name
-from .document_db import (
+from rag.collection_utils import build_collection_name
+from database.document_db import (
     Document,
     DocumentChunk,
     SessionLocal,
@@ -20,7 +19,7 @@ from .document_db import (
     mark_document_sync_error_resolved,
     utcnow,
 )
-from .document_ingest_service import delete_vectors_for_object_path, process_document_ingest
+from services.document_ingest_service import delete_vectors_for_object_path, process_document_ingest
 
 logger = logging.getLogger(__name__)
 

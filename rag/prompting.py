@@ -1,4 +1,4 @@
-def create_advanced_prompt(question: str, context: str, question_type: str, topic: str = None, year_scope: str = None) -> str:
+def create_advanced_prompt(question: str, context: str, question_type: str, topic: str = None) -> str:
     # Base system - Định nghĩa tư duy cho AI
     base_system = """Bạn là Trợ lý AI chuyên gia về Pháp chế và Quy định Đại học. Nhiệm vụ của bạn là hỗ trợ tra cứu thông tin chính xác từ các văn bản quy phạm nội bộ (Quyết định, Thông tư, Quy định...).
 
@@ -97,25 +97,12 @@ Về vấn đề [Chủ đề], theo **Điều [Số]**, các trường hợp ng
     else:
         topic_instr = ""
 
-    # [YEAR-AWARE CHANGE] Rang buoc cau tra loi theo nam hoc duoc hoi.
-    if year_scope:
-        year_instr = (
-            f"\n\n **RÀNG BUỘC NĂM HỌC (BẮT BUỘC):**\n"
-            f"- Người dùng đang hỏi trong phạm vi năm: **{year_scope}**.\n"
-            f"- Ưu tiên các đoạn có nhãn nguồn cùng năm trong context (ví dụ: [Năm 2022-2023 | ...]).\n"
-            f"- Nếu chưa đủ bằng chứng đúng năm, được phép dùng đoạn có nhãn 'Áp dụng nhiều năm' hoặc quy định gần nhất và phải ghi chú rõ phạm vi áp dụng.\n"
-            f"- Không kết luận 'không có dữ liệu' chỉ vì thiếu đúng nhãn năm nếu vẫn có quy định bao quát liên quan.\n"
-        )
-    else:
-        year_instr = ""
-
     # 4. Gộp Prompt
     full_prompt = f"""{base_system}
 ----------------
 {example}
 ----------------
 {topic_instr}
-{year_instr}
 
 **TÀI LIỆU THAM KHẢO (CONTEXT):**
 {context}

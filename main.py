@@ -26,12 +26,12 @@ from core.config import (
     SUPABASE_SYNC_SNAPSHOT_FILE,
     SUPABASE_URL,
 )
-from core.document_db import init_document_db
-from core.supabase_sync_service import SupabaseStorageSyncService, SupabaseSyncCoordinator
-from core.collection_router_retriever import CollectionRouterRetriever
-from core.vectorstore import build_vectorstore_improved, load_vectorstore_improved
-from core.models import embeddings
-from core.qa_pipeline import ask_ai_improved, ask_ai_stream_delta
+from database.document_db import init_document_db
+from services.supabase_sync_service import SupabaseStorageSyncService, SupabaseSyncCoordinator
+from rag.collection_router_retriever import CollectionRouterRetriever
+from rag.vectorstore import build_vectorstore_improved, load_vectorstore_improved
+from rag.models import embeddings
+from rag.qa_pipeline import ask_ai_improved, ask_ai_stream_delta
 from api.admin_sync_router import router as admin_sync_router
 
 # Hàm log lỗi an toàn

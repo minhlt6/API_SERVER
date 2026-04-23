@@ -21,8 +21,7 @@ def clean_json_string(text: str) -> str:
 def analyze_and_expand_query(question: str) -> Dict[str, Any]:
     print(" Phân tích & Mở rộng câu hỏi...")
     
-    # Import cục bộ để tránh lỗi vòng lặp import (circular import) với qa_pipeline
-    from .qa_pipeline import api_manager
+    from core.ai_provider import api_manager  
     
     # Prompt được tối ưu để ép AI trả về JSON chuẩn
     prompt = f"""

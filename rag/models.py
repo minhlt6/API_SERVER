@@ -1,6 +1,6 @@
 from langchain_huggingface import HuggingFaceEmbeddings
 from sentence_transformers import CrossEncoder 
-from .config import EMBED_MODEL, CROSS_ENCODER_MODEL
+from core.config import EMBED_MODEL, CROSS_ENCODER_MODEL
 
 # Khởi tạo Embedding model - Chạy trên CPU của Hugging Face
 embeddings = HuggingFaceEmbeddings(

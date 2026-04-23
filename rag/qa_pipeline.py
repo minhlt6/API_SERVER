@@ -1,128 +1,24 @@
 from typing import List, Generator
 import os, re, hashlib
 import logging 
-import groq
 import google.generativeai as genai
 import json 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
-
-from .models import llm
-from .config import TOP_K_RESULTS, FINAL_TOP_K
+from core.ai_provider import api_manager
+from core.config import TOP_K_RESULTS, FINAL_TOP_K
 from .rerank import advanced_rerank
 from .prompting import create_advanced_prompt
-from .retriever import HybridRetriever
 from .analyze_and_expand import analyze_and_expand_query
-from .llm_utils import safe_invoke, safe_stream
 
 logger = logging.getLogger(__name__)
 
-# Giữ nguyên các hằng số
 MAX_CONTEXT_CHARS = 12000
 MAX_DOC_CHARS = 1800 
 MAX_OUT_CHARS = 3000
-# [YEAR-AWARE CHANGE] Pattern nhan dien nam hoc trong cau hoi.
-ACADEMIC_YEAR_PATTERN = re.compile(r"\b(20\d{2})\s*[-_/]\s*(20\d{2})\b")
-SINGLE_YEAR_PATTERN = re.compile(r"\b(20\d{2})\b")
 
 # Quản lý API Keys cho Groq và Gemini với xoay tua tự động khi gặp lỗi hoặc hết hạn
-class AIProviderManager:
-    def __init__(self):
-        # Lấy danh sách keys 
-        self.groq_keys = [k.strip() for k in os.getenv("GROQ_API_KEYS", "").split(",") if k.strip()]
-        self.gemini_keys = [k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()]
-        self.groq_idx = 0
-        self.gemini_idx = 0
 
-    def get_groq_client(self):
-        if not self.groq_keys: return None
-        return groq.Groq(api_key=self.groq_keys[self.groq_idx])
-
-    def rotate_groq(self):
-        if len(self.groq_keys) > 1:
-            self.groq_idx = (self.groq_idx + 1) % len(self.groq_keys)
-            logger.info(f" Đã xoay sang Groq Key thứ {self.groq_idx + 1}")
-
-    def get_gemini_key(self):
-        if not self.gemini_keys: return None
-        return self.gemini_keys[self.gemini_idx]
-
-    def rotate_gemini(self):
-        if len(self.gemini_keys) > 1:
-            self.gemini_idx = (self.gemini_idx + 1) % len(self.gemini_keys)
-            logger.info(f"Đã xoay sang Gemini Key dự phòng")
-
-api_manager = AIProviderManager()
-
-
-def normalize_academic_year(start_year: str, end_year: str) -> str:
-    return f"{int(start_year):04d}-{int(end_year):04d}"
-
-
-# [YEAR-AWARE CHANGE] Trich xuat nam yeu cau tu cau hoi.
-def detect_requested_year(text: str) -> tuple[str, set]:
-    """Phat hien nam hoc duoc nhac den trong cau hoi."""
-    requested_range = ""
-    mentioned_years = set()
-
-    for start_year, end_year in ACADEMIC_YEAR_PATTERN.findall(text or ""):
-        requested_range = normalize_academic_year(start_year, end_year)
-        mentioned_years.add(start_year)
-        mentioned_years.add(end_year)
-
-    for year in SINGLE_YEAR_PATTERN.findall(text or ""):
-        mentioned_years.add(year)
-
-    return requested_range, mentioned_years
-
-
-def infer_doc_academic_year(doc) -> str:
-    metadata = doc.metadata if isinstance(doc.metadata, dict) else {}
-    existing_year = metadata.get("academic_year")
-    if existing_year:
-        return existing_year
-
-    source_text = " ".join(
-        str(x) for x in [
-            metadata.get("source_relpath"),
-            metadata.get("source"),
-            metadata.get("source_file"),
-        ]
-        if x
-    )
-    match = ACADEMIC_YEAR_PATTERN.search(source_text)
-    if match:
-        year = normalize_academic_year(match.group(1), match.group(2))
-        metadata["academic_year"] = year
-        doc.metadata = metadata
-        return year
-
-    metadata["academic_year"] = "ALL"
-    doc.metadata = metadata
-    return "ALL"
-
-
-# [YEAR-AWARE CHANGE] Loc tai lieu theo metadata nam hoc.
-def filter_docs_by_year(docs: List, requested_range: str, mentioned_years: set) -> List:
-    if not requested_range and not mentioned_years:
-        return docs
-
-    filtered_docs = []
-    for doc in docs:
-        doc_year = infer_doc_academic_year(doc)
-        if doc_year == "ALL":
-            filtered_docs.append(doc)
-            continue
-
-        if requested_range and doc_year == requested_range:
-            filtered_docs.append(doc)
-            continue
-
-        doc_year_tokens = set(SINGLE_YEAR_PATTERN.findall(doc_year))
-        if doc_year_tokens.intersection(mentioned_years):
-            filtered_docs.append(doc)
-
-    return filtered_docs
 
 def sanitize_for_prompt(text: str) -> str:
     """Lọc bỏ prompt injection và PII """
@@ -261,7 +157,6 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     if cohort_key:
         logger.info(f"Sử dụng cohort_key: {cohort_key}")
     
-    # Gửi song song các truy vấn đến Qdrant 
     def search_query(query: str):
         current_alpha = 0.4 if "CNTT" in query.upper() else 0.5
         return hybrid_retriever.search(
@@ -293,18 +188,21 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     final_docs = advanced_rerank(question, all_docs, top_k=FINAL_TOP_K)
 
     context_parts = []
-    context_docs = []  # Lưu metadata để trích dẫn ở cuối
+    context_docs = []  
     total_chars = 0
+    
     for doc in final_docs:
         page = doc.metadata.get('page_number', 'N/A')
         file_name = doc.metadata.get('source_file') or doc.metadata.get('source')
         source = f"[{os.path.basename(file_name)} | Trang {page}]" if file_name else f"[Trang {page}]"
         block = f"{source}\n{doc.page_content}"
+        
+        #  Dùng continue để nhét tối đa các chunk ngắn thay vì break làm đứt gánh
         if total_chars + len(block) > MAX_CONTEXT_CHARS:
-            break
+            continue
+            
         total_chars += len(block)
         context_parts.append(block)
-        # Lưu metadata cho phần tài liệu tham khảo ở cuối
         context_docs.append({
             'source': file_name or "Không rõ",
             'page': page
@@ -318,7 +216,6 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     logger.info("Đang tạo câu trả lời cuối cùng ...")
     
     success = False
-    # Ưu tiên Groq (tiết kiệm token)
     for _ in range(len(api_manager.groq_keys) if api_manager.groq_keys else 1):
         try:
             client = api_manager.get_groq_client()
@@ -336,13 +233,12 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
             success = True
             break
         except Exception as e:
-            if "429" in str(e):  # Rate Limit
+            if "429" in str(e): 
                 api_manager.rotate_groq()
                 continue
             logger.error(f"Lỗi Groq: {e}")
             break
     
-    # Fallback sang Gemini nếu Groq lỗi
     if not success:
         logger.warning("Chuyển sang Gemini ...")
         for _ in range(len(api_manager.gemini_keys) if api_manager.gemini_keys else 1):
@@ -363,7 +259,6 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
         yield "Đã xảy ra lỗi hệ thống hoặc quá tải. Vui lòng thử lại sau giây lát!"
         return
     
-    # Thêm phần Tài liệu tham khảo ở cuối
     if context_docs:
         yield "\n\n---\n\n"
         yield "## 📚 Tài liệu tham khảo\n\n"
