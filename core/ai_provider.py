@@ -16,11 +16,10 @@ class AIProviderManager:
 
     def get_groq_client(self):
         if not self.groq_keys: return None
-        # Chỉ lấy key, không thay đổi state nên không cần lock
         return groq.Groq(api_key=self.groq_keys[self.groq_idx])
 
     def rotate_groq(self):
-        with self._lock: # Khóa luồng khi xoay tua để tránh xung đột
+        with self._lock:
             if len(self.groq_keys) > 1:
                 self.groq_idx = (self.groq_idx + 1) % len(self.groq_keys)
                 logger.info(f"Đã xoay sang Groq Key thứ {self.groq_idx + 1}")

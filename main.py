@@ -148,7 +148,6 @@ async def lifespan(app: FastAPI):
 
         logger.info("Đang khởi tạo retriever (Qdrant collection router)...")
         app.state.retriever = CollectionRouterRetriever(
-            base_retriever=None,
             qdrant_client=client,
             embeddings_model=embeddings,
             top_n_collections=COLLECTION_ROUTER_TOP_N,
