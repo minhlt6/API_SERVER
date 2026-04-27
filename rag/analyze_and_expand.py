@@ -112,7 +112,31 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             fixed_str = cleaned_json.replace("'", '"').replace("None", "null").replace("True", "true").replace("False", "false")
             result = json.loads(fixed_str)
+        other_schools = [
+            "bách khoa", "bach khoa", "hust",
+            "neu", "kinh tế",
+            "ngoại thương",  "ftu",
+            "sư phạm",  "hpu",
+            "nông lâm", 
+            "công nghệ",  "uit",
+            "huflit", "rmit", "fpt", "văn hiến",  "mở"
+        ]
 
+        has_other_school = any(school in question_lower for school in other_schools)
+
+        if has_other_school:
+            logger.info(f"⚠️ DETECTED trường khác trong câu hỏi! Force → outlier")
+            q_type = "outlier"
+            ans = "Xin lỗi, tôi là trợ lý AI chuyên trách của Trường Đại học Thủy Lợi. Tôi chỉ hỗ trợ giải đáp các quy chế và thông tin liên quan đến sinh viên Thủy Lợi."
+            queries = []
+            
+            final_result = {
+                "question_type": q_type,
+                "answer": ans,
+                "expanded_queries": queries
+            }
+            print(f"✓ Phân loại: {final_result['question_type']} (Safety Check)")
+            return final_result
         # Logic an toàn: Nếu AI lỡ trả lời câu hỏi chuyên môn trong field "answer", ta xóa nó đi để ép hệ thống tìm docs
         q_type = result.get("question_type", "simple")
         ans = result.get("answer", None)
