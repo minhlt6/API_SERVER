@@ -33,8 +33,6 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
     BẠN CHỈ CẦN ĐƯA RA CÂU HỎI TƯƠNG TỰ CHỨ KHÔNG CẦN TRẢ LỜI CÂU HỎI 
     1. **CHỐNG ẢO GIÁC (ANTI-HALLUCINATION) - ƯU TIÊN SỐ 1:**
         - Đọc kỹ `CÂU HỎI CỦA SINH VIÊN` và `TÀI LIỆU THAM KHẢO`.
-        - Nếu câu hỏi nhắc đến TÊN CÁC TRƯỜNG ĐẠI HỌC KHÁC (VD: Bách Khoa, NEU, Kinh tế...) hoặc các chủ đề hoàn toàn nằm ngoài môi trường đại học (VD: nấu ăn, thời tiết, lịch sử thế giới, code lập trình):
-        => BẮT BUỘC đặt "question_type": "normal", "answer": "Xin lỗi, tôi là trợ lý AI chuyên trách của Trường Đại học Thủy Lợi. Tôi chỉ hỗ trợ giải đáp các quy chế và thông tin liên quan đến sinh viên Thủy Lợi."
         - Nếu `CÂU HỎI` là câu hỏi cá nhân, trêu đùa (VD: "bạn biết tôi là ai không", "ăn cơm chưa") -> BỎ QUA TÀI LIỆU, trả lời ngay: "Xin lỗi, tôi chỉ hỗ trợ giải đáp thông tin về quy chế đào tạo."
         - Nếu `TÀI LIỆU THAM KHẢO` chứa nội dung KHÔNG LIÊN QUAN CHÚT NÀO đến câu hỏi (VD: Hỏi về 'điểm rèn luyện' nhưng tài liệu lại nói về 'học phí') -> TUYỆT ĐỐI KHÔNG tóm tắt tài liệu. Trả lời ngay: "Rất tiếc, hệ thống không tìm thấy thông tin phù hợp trong quy chế để trả lời câu hỏi của bạn."
     
