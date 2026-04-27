@@ -30,7 +30,7 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
     
 
      QUY TẮC PHÂN LOẠI CỰC KỲ NGHIÊM NGẶT:
-
+    BẠN CHỈ CẦN ĐƯA RA CÂU HỎI TƯƠNG TỰ CHỨ KHÔNG CẦN TRẢ LỜI CÂU HỎI 
     1. **CHỐNG ẢO GIÁC (ANTI-HALLUCINATION) - ƯU TIÊN SỐ 1:**
         - Đọc kỹ `CÂU HỎI CỦA SINH VIÊN` và `TÀI LIỆU THAM KHẢO`.
         - Nếu câu hỏi nhắc đến TÊN CÁC TRƯỜNG ĐẠI HỌC KHÁC (VD: Bách Khoa, NEU, Kinh tế...) hoặc các chủ đề hoàn toàn nằm ngoài môi trường đại học (VD: nấu ăn, thời tiết, lịch sử thế giới, code lập trình):
@@ -124,13 +124,13 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
         if q_type == "normal":
             # Normal: Chỉ cần có từ khóa học vụ là bẻ lái (hoặc câu quá dài)
             if has_academic_keyword or len(question.split()) > 10:
-                yield " Phát hiện từ khóa học vụ. Ép về simple."
+                logger.info(" Phát hiện từ khóa học vụ. Ép về simple.")
                 q_type = "simple"
                 ans = None
                 
         elif q_type == "outlier":
             if has_academic_keyword and has_school_keyword:
-                yield " G Có đủ từ khóa học vụ và tên trường. Cứu vớt ép về simple."
+                logger.info(" Có đủ từ khóa học vụ và tên trường. Cứu vớt ép về simple.")
                 q_type = "simple"
                 ans = None
         if q_type == "normal" and not ans:
