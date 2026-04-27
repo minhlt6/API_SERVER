@@ -141,9 +141,11 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     question = generate_standalone_query(message, history)
 
     processed_data = analyze_and_expand_query(question)
+    q_type = processed_data.get("question_type")
 
-    if processed_data.get("question_type") == "normal":
-        ans = processed_data.get("answer") or "Chào bạn 👋 Mình hỗ trợ tra cứu quy chế đào tạo."
+    # Chặn ngay lập tức nếu là xã giao hoặc lạc đề
+    if q_type in ["normal", "outlier"]:
+        ans = processed_data.get("answer") or "Mình là trợ lý hỗ trợ quy chế đào tạo Trường Đại học Thủy Lợi. Bạn cần hỏi gì về quy chế?"
         yield ans
         return
 

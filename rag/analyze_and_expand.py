@@ -38,17 +38,21 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
         - Nếu `CÂU HỎI` là câu hỏi cá nhân, trêu đùa (VD: "bạn biết tôi là ai không", "ăn cơm chưa") -> BỎ QUA TÀI LIỆU, trả lời ngay: "Xin lỗi, tôi chỉ hỗ trợ giải đáp thông tin về quy chế đào tạo."
         - Nếu `TÀI LIỆU THAM KHẢO` chứa nội dung KHÔNG LIÊN QUAN CHÚT NÀO đến câu hỏi (VD: Hỏi về 'điểm rèn luyện' nhưng tài liệu lại nói về 'học phí') -> TUYỆT ĐỐI KHÔNG tóm tắt tài liệu. Trả lời ngay: "Rất tiếc, hệ thống không tìm thấy thông tin phù hợp trong quy chế để trả lời câu hỏi của bạn."
     
-    2. LOẠI "normal" (Xã giao):
+    2. Loại "outlier" (Ngoài lề):
+       - Dành cho các câu hỏi hoàn toàn không liên quan đến QUY CHẾ ĐÀO TẠO CỦA TRƯỜNG ĐẠI HỌC THỦY LỢI ( VD : các câu hỏi về trường khác, chủ đề khác, hoặc câu hỏi cá nhân, trêu đùa).
+       - HÀNH ĐỘNG: Trả về câu trả lời từ chối lịch sự, KHÔNG ĐƯỢC phép trả lời theo kiểu "Tôi không biết" hoặc "Tôi không thể trả lời". PHẢI TRẢ LỜI CỤ THỂ rằng bạn chỉ hỗ trợ về quy chế đào tạo của Thủy Lợi.
+       - Expanded queries: Rỗng [].
+    3. LOẠI "normal" (Xã giao):
        - CHỈ DÀNH CHO: "Xin chào", "Hi", "Hello", "Cảm ơn", "Tạm biệt", "Bạn tên là gì?", "Bạn ai tạo ra".
        - HÀNH ĐỘNG: Trả về câu trả lời ngắn gọn, thân thiện.
        - Expanded queries: Rỗng [].
 
-    3. LOẠI "simple" / "comparative" / "sequential" / "temporal" / "verification" / "exception" (Tìm kiếm tài liệu):
+    4. LOẠI "simple" / "comparative" / "sequential" / "temporal" / "verification" / "exception" (Tìm kiếm tài liệu):
        - Dành cho TẤT CẢ các câu hỏi khác, kể cả câu hỏi ngắn hay viết tắt.
        - Ví dụ: "Quy chế thi", "mất mạng thì sao", "bị đình chỉ", "tính điểm thế nào", "sinh viên làm gì".
        - BẮT BUỘC đặt "answer": null (để hệ thống đi tìm trong tài liệu).
        - Expanded queries: Tạo 2-3 biến thể từ khóa để tìm kiếm tốt hơn.
-    4. KỸ NĂNG MỞ RỘNG TỪ KHÓA TỔNG QUÁT (BẮT BUỘC):
+    5. KỸ NĂNG MỞ RỘNG TỪ KHÓA TỔNG QUÁT (BẮT BUỘC):
        - Trả về danh sách CHÍNH XÁC 3 CÂU bao gồm: 1 câu gốc đã tối ưu + 2 biến thể theo từ khóa học vụ. KHÔNG ĐƯỢC sinh quá 3 câu.
        - Bạn phải đóng vai một chuyên viên phòng Đào tạo. Nhiệm vụ của bạn là "dịch" ngôn ngữ đời thường/viết tắt của sinh viên sang các THUẬT NGỮ HÀNH CHÍNH, PHÁP LÝ chính thức thường xuất hiện trong các văn bản quy phạm.
        - LUÔN LUÔN tạo ra các biến thể tìm kiếm theo 3 hướng sau để đảm bảo không bỏ sót tài liệu:
@@ -59,8 +63,8 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
 
     OUTPUT JSON FORMAT:
     {{
-        "question_type": "normal" | "simple" | "comparative" | "sequential" | "temporal" | "verification" | "exception",
-        "answer": "Nội dung trả lời (chỉ nếu là normal) hoặc null (nếu là câu hỏi thi cử)",
+        "question_type": "outlier"|"normal" | "simple" | "comparative" | "sequential" | "temporal" | "verification" | "exception",
+        "answer": "Nội dung trả lời (chỉ nếu là normal hoặc outlier) hoặc null (nếu là câu hỏi thi cử)",
         "expanded_queries": ["Câu số 1", "Câu số 2", "Câu số 3"]
     }}
     
@@ -104,11 +108,37 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
         # Logic an toàn: Nếu AI lỡ trả lời câu hỏi chuyên môn trong field "answer", ta xóa nó đi để ép hệ thống tìm docs
         q_type = result.get("question_type", "simple")
         ans = result.get("answer", None)
+        question_lower = question.lower()
         
+        academic_keywords = [
+            "tín chỉ", "học bổng", "bảo lưu", "thi", "điểm", "học vụ", 
+            "buộc thôi học", "đình chỉ", "nghỉ học", "học phí", "rèn luyện", 
+            "cảnh báo", "tốt nghiệp", "học lại", "học cải thiện", "đồ án",
+            "chuyên đề", "chuẩn đầu ra", "học kỳ", "học phần"
+        ]
+        school_keywords = ["tlu", "thủy lợi", "thuy loi", "truong minh", "trường mình"]
+        
+        has_academic_keyword = any(kw in question_lower for kw in academic_keywords)
+        has_school_keyword = any(skw in question_lower for skw in school_keywords)
+        
+        if q_type == "normal":
+            # Normal: Chỉ cần có từ khóa học vụ là bẻ lái (hoặc câu quá dài)
+            if has_academic_keyword or len(question.split()) > 10:
+                yield " Phát hiện từ khóa học vụ. Ép về simple."
+                q_type = "simple"
+                ans = None
+                
+        elif q_type == "outlier":
+            if has_academic_keyword and has_school_keyword:
+                yield " G Có đủ từ khóa học vụ và tên trường. Cứu vớt ép về simple."
+                q_type = "simple"
+                ans = None
         if q_type == "normal" and not ans:
             ans = "Chào bạn 👋 Mình hỗ trợ tra cứu quy chế đào tạo."
+        if q_type == "outlier" and not ans:
+            ans = "Xin lỗi, tôi là trợ lý AI chuyên trách của Trường Đại học Thủy Lợi. Tôi chỉ hỗ trợ giải đáp các quy chế và thông tin liên quan đến sinh viên Thủy Lợi."
 
-        if q_type != "normal":
+        if q_type != "normal" and q_type != "outlier":
             ans = None
         
         # Đảm bảo danh sách truy vấn
