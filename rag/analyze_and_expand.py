@@ -32,13 +32,22 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
      QUY TẮC PHÂN LOẠI CỰC KỲ NGHIÊM NGẶT:
     BẠN CHỈ CẦN ĐƯA RA CÂU HỎI TƯƠNG TỰ CHỨ KHÔNG CẦN TRẢ LỜI CÂU HỎI 
     1. **CHỐNG ẢO GIÁC (ANTI-HALLUCINATION) - ƯU TIÊN SỐ 1:**
-        - ĐỌC KỸ CÂU HỎI ĐẦY ĐỦ CỦA SINH VIÊN , NẾU câu hỏi nhắc đến TÊN CÁC TRƯỜNG ĐẠI HỌC KHÁC (VD: Bách Khoa, NEU, Kinh tế...) hoặc các chủ đề hoàn toàn nằm ngoài môi trường đại học (VD: nấu ăn, thời tiết, lịch sử thế giới, code lập trình):
-        => BẮT BUỘC đặt "question_type": "outlier", "answer": "Xin lỗi, tôi là trợ lý AI chuyên trách của Trường Đại học Thủy Lợi. Tôi chỉ hỗ trợ giải đáp các quy chế và thông tin liên quan đến sinh viên Thủy Lợi."
-        - Nếu `CÂU HỎI` là câu hỏi cá nhân, trêu đùa (VD: "bạn biết tôi là ai không", "ăn cơm chưa") -> BỎ QUA TÀI LIỆU, trả lời ngay: "Xin lỗi, tôi chỉ hỗ trợ giải đáp thông tin về quy chế đào tạo."
-        - Nếu `TÀI LIỆU THAM KHẢO` chứa nội dung KHÔNG LIÊN QUAN CHÚT NÀO đến câu hỏi (VD: Hỏi về 'điểm rèn luyện' nhưng tài liệu lại nói về 'học phí') -> TUYỆT ĐỐI KHÔNG tóm tắt tài liệu. Trả lời ngay: "Rất tiếc, hệ thống không tìm thấy thông tin phù hợp trong quy chế để trả lời câu hỏi của bạn."
-    
+        - ĐỌC KỸ CÂU HỎI, NẾU phát hiện nhắc đến các trường đại học KHÁC:
+        (VD: Học bổng đại học bách khoa -> Outlier vì nhắc đến Bách Khoa; Bạn biết tôi là ai -> Outlier vì câu hỏi cá nhân;...)
+        - HOẶC các chủ đề ngoài quy chế (code, nấu ăn, lịch sử...)
+        => BẮT BUỘC: "question_type": "outlier"
+   
+         DANH SÁCH TRƯỜNG KHÁC (KHÔNG PHẢI THỦY LỢI):
+        - "bách khoa", "bach khoa", "hust"
+        - "neu", "kinh tế"
+        - "ngoại thương", "ngoai thuong", "ftu"
+        - "sư phạm", "su pham", "hpu"
+        - "nông lâm", "nong lam"
+        - "công nghệ thông tin", "uit"
+        - "huflit", "rmit", "fpt", "văn hiến", "van hien", "mở"
     2. Loại "outlier" (Ngoài lề):
-       - Dành cho các câu hỏi hoàn toàn không liên quan đến QUY CHẾ ĐÀO TẠO CỦA TRƯỜNG ĐẠI HỌC THỦY LỢI ( VD : các câu hỏi về trường khác, chủ đề khác, hoặc câu hỏi cá nhân, trêu đùa).
+       - DÀNH CHO: Câu hỏi có nhắc đến tên trường đại học khác, hoặc các chủ đề hoàn toàn không liên quan đến môi trường đại học, hoặc câu hỏi cá nhân/trêu đùa.
+       - Ví dụ: "Bách Khoa có quy định thế nào?", "NEU có học bổng không?", "Bạn biết tôi là ai không?", "Hôm nay thời tiết thế nào?", "Lịch sử Việt Nam", "Code Python thế nào".
        - HÀNH ĐỘNG: Trả về câu trả lời từ chối lịch sự, KHÔNG ĐƯỢC phép trả lời theo kiểu "Tôi không biết" hoặc "Tôi không thể trả lời". PHẢI TRẢ LỜI CỤ THỂ rằng bạn chỉ hỗ trợ về quy chế đào tạo của Thủy Lợi.
        - Expanded queries: Rỗng [].
     3. LOẠI "normal" (Xã giao):
@@ -115,7 +124,7 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
             "cảnh báo", "tốt nghiệp", "học lại", "học cải thiện", "đồ án",
             "chuyên đề", "chuẩn đầu ra", "học kỳ", "học phần"
         ]
-        school_keywords = ["tlu", "thủy lợi", "thuy loi", "truong minh", "trường mình"]
+        school_keywords = ["tlu", "thủy lợi", "thuy loi", "truong minh", "trường mình", "trường "]
         
         has_academic_keyword = any(kw in question_lower for kw in academic_keywords)
         has_school_keyword = any(skw in question_lower for skw in school_keywords)

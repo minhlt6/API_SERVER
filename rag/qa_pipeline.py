@@ -216,7 +216,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     prompt = create_advanced_prompt(question, context, question_type, topic_hint)
 
     logger.info("Đang tạo câu trả lời cuối cùng ...")
-    
+    generated_text = ""
     success = False
     for _ in range(len(api_manager.groq_keys) if api_manager.groq_keys else 1):
         try:
@@ -231,6 +231,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
             for chunk in stream:
                 token = chunk.choices[0].delta.content
                 if token:
+                    generated_text += token
                     yield token
             success = True
             break
@@ -250,6 +251,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
                 response = model.generate_content(prompt, stream=True)
                 for chunk in response:
                     if chunk.text:
+                        generated_text += chunk.text
                         yield chunk.text
                 success = True
                 break
@@ -260,8 +262,8 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     if not success:
         yield "Đã xảy ra lỗi hệ thống hoặc quá tải. Vui lòng thử lại sau giây lát!"
         return
-    
-    if context_docs:
+    is_refusal = "Xin lỗi, tôi là trợ lý" in generated_text or "không thể tư vấn" in generated_text
+    if context_docs and not is_refusal:
         yield "\n\n---\n\n"
         yield "## 📚 Tài liệu tham khảo\n\n"
         seen_sources = set()
