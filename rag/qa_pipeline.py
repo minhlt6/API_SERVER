@@ -216,8 +216,9 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     prompt = create_advanced_prompt(question, context, question_type, topic_hint)
 
     logger.info("Đang tạo câu trả lời cuối cùng ...")
-    generated_text = ""
     success = False
+    generated_text = ""
+
     for _ in range(len(api_manager.groq_keys) if api_manager.groq_keys else 1):
         try:
             client = api_manager.get_groq_client()
@@ -251,7 +252,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
                 response = model.generate_content(prompt, stream=True)
                 for chunk in response:
                     if chunk.text:
-                        generated_text += chunk.text
+                        generated_text += chunk.text 
                         yield chunk.text
                 success = True
                 break
@@ -262,7 +263,21 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     if not success:
         yield "Đã xảy ra lỗi hệ thống hoặc quá tải. Vui lòng thử lại sau giây lát!"
         return
-    is_refusal = "Xin lỗi, tôi là trợ lý" in generated_text or "không thể tư vấn" in generated_text
+    
+    
+    text_lower = generated_text.lower()
+    is_refusal = any(phrase in text_lower for phrase in [
+        "xin lỗi, tôi là trợ lý",
+        "không thể tư vấn",
+        "không có thông tin",
+        "không tìm thấy thông tin",
+        "không có đủ thông tin",
+        "không đề cập trực tiếp",
+        "không có tài liệu nào",
+        "tài liệu tham khảo không",
+        "không có thông tin cụ thể",
+        "không đủ thông tin để trả lời"
+    ])
     if context_docs and not is_refusal:
         yield "\n\n---\n\n"
         yield "## 📚 Tài liệu tham khảo\n\n"
