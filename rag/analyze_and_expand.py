@@ -112,6 +112,7 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             fixed_str = cleaned_json.replace("'", '"').replace("None", "null").replace("True", "true").replace("False", "false")
             result = json.loads(fixed_str)
+        question_lower = question.lower()
         other_schools = [
             "bách khoa", "bach khoa", "hust",
             "neu", "kinh tế",
@@ -140,7 +141,6 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
         # Logic an toàn: Nếu AI lỡ trả lời câu hỏi chuyên môn trong field "answer", ta xóa nó đi để ép hệ thống tìm docs
         q_type = result.get("question_type", "simple")
         ans = result.get("answer", None)
-        question_lower = question.lower()
         
         academic_keywords = [
             "tín chỉ", "học bổng", "bảo lưu", "thi", "điểm", "học vụ", 
