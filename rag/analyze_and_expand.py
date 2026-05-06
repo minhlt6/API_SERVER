@@ -184,8 +184,7 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
         has_school_keyword = any(skw in question_lower for skw in school_keywords)
         
         if q_type == "normal":
-            # Normal: Chỉ cần có từ khóa học vụ là bẻ lái (hoặc câu quá dài)
-            if has_academic_keyword or len(question.split()) > 10:
+            if has_academic_keyword :
                 logger.info(" Phát hiện từ khóa học vụ. Ép về simple.")
                 q_type = "simple"
                 ans = None
