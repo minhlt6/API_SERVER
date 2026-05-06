@@ -23,13 +23,12 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
     
     from core.ai_provider import api_manager  
     
-    # Prompt được tối ưu để ép AI trả về JSON chuẩn
+    # Prompt được tối ưu để ép AI trả về JSON chuẩn và xử lý nhiễu giao tiếp
     prompt = f"""
     Bạn là bộ tìm kiếm thông tin thông minh cho hệ thống hỏi đáp về "Quy chế đào tạo của Trường Đại học Thủy Lợi".
     Nhiệm vụ: Phân tích câu hỏi "{question}" và trả về JSON.
     
-
-     QUY TẮC PHÂN LOẠI CỰC KỲ NGHIÊM NGẶT:
+    QUY TẮC PHÂN LOẠI CỰC KỲ NGHIÊM NGẶT:
     BẠN CHỈ CẦN ĐƯA RA CÂU HỎI TƯƠNG TỰ CHỨ KHÔNG CẦN TRẢ LỜI CÂU HỎI 
     1. **CHỐNG ẢO GIÁC (ANTI-HALLUCINATION) - ƯU TIÊN SỐ 1:**
         - ĐỌC KỸ CÂU HỎI, NẾU phát hiện nhắc đến các trường đại học KHÁC:
@@ -40,26 +39,32 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
          DANH SÁCH TRƯỜNG KHÁC (KHÔNG PHẢI THỦY LỢI):
         - "bách khoa", "bach khoa", "hust"
         - "neu", "kinh tế"
-        - "ngoại thương", "ngoai thuong", "ftu"
-        - "sư phạm", "su pham", "hpu"
-        - "nông lâm", "nong lam"
-        - "công nghệ thông tin", "uit"
-        - "huflit", "rmit", "fpt", "văn hiến", "van hien", "mở"
+        - "ngoại thương",  "ftu"
+        - "sư phạm",  "hpu"
+        - "nông lâm", 
+        - "công nghệ",  "uit"
+        - "huflit", "rmit", "fpt", "văn hiến",  "mở"
     2. Loại "outlier" (Ngoài lề):
-       - DÀNH CHO: Câu hỏi có nhắc đến tên trường đại học khác, hoặc các chủ đề hoàn toàn không liên quan đến môi trường đại học, hoặc câu hỏi cá nhân/trêu đùa.
-       - Ví dụ: "Bách Khoa có quy định thế nào?", "NEU có học bổng không?", "Bạn biết tôi là ai không?", "Hôm nay thời tiết thế nào?", "Lịch sử Việt Nam", "Code Python thế nào".
-       - HÀNH ĐỘNG: Trả về câu trả lời từ chối lịch sự, KHÔNG ĐƯỢC phép trả lời theo kiểu "Tôi không biết" hoặc "Tôi không thể trả lời". PHẢI TRẢ LỜI CỤ THỂ rằng bạn chỉ hỗ trợ về quy chế đào tạo của Thủy Lợi.
-       - Expanded queries: Rỗng [].
-    3. LOẠI "normal" (Xã giao):
-       - CHỈ DÀNH CHO: "Xin chào", "Hi", "Hello", "Cảm ơn", "Tạm biệt", "Bạn tên là gì?", "Bạn ai tạo ra".
-       - HÀNH ĐỘNG: Trả về câu trả lời ngắn gọn, thân thiện.
+       - DÀNH CHO: Câu hỏi nhắc đến tên trường đại học khác, chủ đề không liên quan môi trường đại học, câu hỏi cá nhân.
+       - HÀNH ĐỘNG: Trả về câu trả lời từ chối lịch sự trong trường "answer".
        - Expanded queries: Rỗng [].
 
-    4. LOẠI "simple" / "comparative" / "sequential" / "temporal" / "verification" / "exception" (Tìm kiếm tài liệu):
-       - Dành cho TẤT CẢ các câu hỏi khác, kể cả câu hỏi ngắn hay viết tắt.
-       - Ví dụ: "Quy chế thi", "mất mạng thì sao", "bị đình chỉ", "tính điểm thế nào", "sinh viên làm gì".
-       - BẮT BUỘC đặt "answer": null (để hệ thống đi tìm trong tài liệu).
-       - Expanded queries: Tạo 2-3 biến thể từ khóa để tìm kiếm tốt hơn.
+    3. Loại "normal" (Giao tiếp thuần túy):
+       - CHỈ DÀNH CHO: "Xin chào", "Cảm ơn", "Tạm biệt", "Bạn tên là gì?", "Bạn ai tạo ra".
+       - LƯU Ý KHI LỌC NHIỄU: NẾU câu vừa có chào hỏi vừa có câu hỏi học vụ (VD: "Chào bạn, cho mình hỏi về học bổng") -> KHÔNG được xếp vào "normal". Phải xếp vào loại tìm kiếm phía dưới và cắt bỏ phần chào hỏi.
+       - HÀNH ĐỘNG: Trả về câu trả lời ngắn gọn, thân thiện trong "answer". 
+       - Expanded queries: Rỗng [].
+
+    4. CÁC LOẠI TÌM KIẾM TÀI LIỆU ("simple" / "comparative" / "sequential" / "temporal" / "verification" / "exception"):
+       - Dành cho TẤT CẢ các câu có ý định hỏi về quy chế, bất kể CÓ HAY KHÔNG kèm lời chào/cảm ơn.
+       - "simple": Câu hỏi đơn giản, hỏi về 1 khái niệm/quy định.
+       - "comparative": Cần so sánh giữa 2 hay nhiều thứ.
+       - "sequential": Câu hỏi về quy trình, các bước, thủ tục.
+       - "temporal": Câu hỏi về thời gian, thời hạn.
+       - "verification": Câu hỏi đúng/sai, xác minh thông tin "Có được không?".
+       - "exception": Câu hỏi về ngoại lệ, trường hợp đặc biệt.
+       - BẮT BUỘC đặt "answer": null.
+
     5. KỸ NĂNG MỞ RỘNG TỪ KHÓA TỔNG QUÁT (BẮT BUỘC):
        - Trả về danh sách CHÍNH XÁC 3 CÂU bao gồm: 1 câu gốc đã tối ưu + 2 biến thể theo từ khóa học vụ. KHÔNG ĐƯỢC sinh quá 3 câu.
        - Bạn phải đóng vai một chuyên viên phòng Đào tạo. Nhiệm vụ của bạn là "dịch" ngôn ngữ đời thường/viết tắt của sinh viên sang các THUẬT NGỮ HÀNH CHÍNH, PHÁP LÝ chính thức thường xuất hiện trong các văn bản quy phạm.
@@ -67,7 +72,32 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
          + Hướng 1 (Hành chính hóa): Chuyển đổi các động từ/danh từ thông tục sang từ ngữ học vụ trang trọng. (Ví dụ: "đuổi học" -> "buộc thôi học"; "trượt môn" -> "học lại, điểm F"; "xin nghỉ" -> "tạm ngừng học tập").
          + Hướng 2 (Từ khóa bao trùm): Tìm chủ đề lớn chứa vấn đề đó. (Ví dụ: Hỏi về "điểm rèn luyện" -> Thêm từ khóa "Đánh giá kết quả rèn luyện").
          + Hướng 3 (Định nghĩa): Thêm các tiền tố để tìm chính xác định nghĩa. (Ví dụ: "Học bổng là gì", "Các loại học bổng", "Quy định về...").
-       - Trả về danh sách gồm câu gốc và các biến thể này.
+       - Trả về danh sách chính xác 3 câu tìm kiếm đã được tối ưu hóa. Câu gốc phải nằm trong danh sách nếu nó phù hợp, nếu không hãy tạo biến thể gần nhất theo hướng hành chính hóa.
+
+    [VÍ DỤ MẪU - FEW SHOT EXAMPLES]
+    Input: "Chào bot nhé bạn ăn cơm chưa"
+    Output: {{"question_type": "normal", "answer": "Chào bạn 👋 Mình là trợ lý hỏi đáp quy chế đào tạo, bạn cần hỗ trợ gì ạ?", "expanded_queries": []}}
+
+    Input: "Dạ cho em hỏi Bách khoa xét học bổng thế nào ạ?"
+    Output: {{"question_type": "outlier", "answer": "Xin lỗi, tôi chỉ hỗ trợ thông tin liên quan đến Trường Đại học Thủy Lợi, không thể trả lời về Bách Khoa.", "expanded_queries": []}}
+
+    Input: "Chào bạn, cho mình hỏi kỳ này sinh viên đăng ký rút học phần muộn nhất là khi nào vậy, cảm ơn bạn."
+    Output: {{"question_type": "temporal", "answer": null, "expanded_queries": ["Thời hạn đăng ký rút học phần mùa muộn nhất", "Quy định thời gian hủy học phần đăng ký", "Lịch trình xin rút bớt môn học"]}}
+
+    Input: "Bị điểm F thì có bị đuổi học không"
+    Output: {{"question_type": "verification", "answer": null, "expanded_queries": ["Điểm F học phần có bị buộc thôi học không", "Quy định xử lý sinh viên nhận điểm F", "Điều kiện buộc thôi học kết quả học tập"]}}
+
+    Input: "Học bổng khá với giỏi khác nhau nhiều không ạ"
+    Output: {{"question_type": "comparative", "answer": null, "expanded_queries": ["So sánh học bổng khuyến khích học tập loại khá và giỏi", "Tiêu chuẩn xét học bổng khá và giỏi", "Mức tiền học bổng khá giỏi"]}}
+
+    Input: "Em bị cảnh báo học vụ lần 1 thì phải làm giấy tờ gì không"
+    Output: {{"question_type": "sequential", "answer": null, "expanded_queries": ["Quy trình thủ tục xử lý sinh viên cảnh báo học vụ lần 1", "Xử lý kết quả học tập cảnh báo học vụ", "Sinh viên cần làm gì khi bị cảnh báo kết quả học tập"]}}
+
+    Input: "Đang bảo lưu mà có giấy gọi nhập ngũ thì sao?"
+    Output: {{"question_type": "exception", "answer": null, "expanded_queries": ["Ngoại lệ gọi nhập ngũ khi đang tạm ngừng học tập", "Quy định bảo lưu kết quả học tập đi nghĩa vụ quân sự", "Trường hợp đặc biệt tạm ngừng học tập"]}}
+
+    Input: "Mất thẻ sinh viên"
+    Output: {{"question_type": "simple", "answer": null, "expanded_queries": ["Quy định cấp lại thẻ sinh viên bị mất", "Thủ tục xin cấp lại thẻ sinh viên", "Xử lý trường hợp làm mất thẻ sinh viên"]}}
 
     OUTPUT JSON FORMAT:
     {{
