@@ -66,13 +66,14 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
        - BẮT BUỘC đặt "answer": null.
 
     5. KỸ NĂNG MỞ RỘNG TỪ KHÓA TỔNG QUÁT (BẮT BUỘC):
-       - Trả về danh sách CHÍNH XÁC 3 CÂU bao gồm: 1 câu gốc đã tối ưu + 2 biến thể theo từ khóa học vụ. KHÔNG ĐƯỢC sinh quá 3 câu.
-       - Bạn phải đóng vai một chuyên viên phòng Đào tạo. Nhiệm vụ của bạn là "dịch" ngôn ngữ đời thường/viết tắt của sinh viên sang các THUẬT NGỮ HÀNH CHÍNH, PHÁP LÝ chính thức thường xuất hiện trong các văn bản quy phạm.
-       - LUÔN LUÔN tạo ra các biến thể tìm kiếm theo 3 hướng sau để đảm bảo không bỏ sót tài liệu:
-         + Hướng 1 (Hành chính hóa): Chuyển đổi các động từ/danh từ thông tục sang từ ngữ học vụ trang trọng. (Ví dụ: "đuổi học" -> "buộc thôi học"; "trượt môn" -> "học lại, điểm F"; "xin nghỉ" -> "tạm ngừng học tập").
-         + Hướng 2 (Từ khóa bao trùm): Tìm chủ đề lớn chứa vấn đề đó. (Ví dụ: Hỏi về "điểm rèn luyện" -> Thêm từ khóa "Đánh giá kết quả rèn luyện").
-         + Hướng 3 (Định nghĩa): Thêm các tiền tố để tìm chính xác định nghĩa. (Ví dụ: "Học bổng là gì", "Các loại học bổng", "Quy định về...").
-       - Trả về danh sách chính xác 3 câu tìm kiếm đã được tối ưu hóa. Câu gốc phải nằm trong danh sách nếu nó phù hợp, nếu không hãy tạo biến thể gần nhất theo hướng hành chính hóa.
+       - Trả về danh sách CHÍNH XÁC 3 CÂU. **LUÔN LUÔN** câu đầu tiên PHẢI là câu HỎI GỐC của người dùng (giữ nguyên từng chữ hoặc chỉ cải thiện lặng lẽ nếu cần).
+       - Hai câu còn lại là các biến thể tìm kiếm tự nhiên để mở rộng phạm vi tìm kiếm.
+       - NGUYÊN TẮC MỞ RỘNG:
+         + **KHÔNG ĐƯỢC** thêm thông tin mà sinh viên không hỏi (Ví dụ: Hỏi "học bổng" KHÔNG được viết lại thành "học bổng khuyến khích học tập" vì đó không phải câu hỏi gốc).
+         + **Hướng 1 (Hành chính hóa nhẹ):** Chỉ chuyển đổi động từ/danh từ thông tục RÕNG (Ví dụ: "đuổi học" -> "buộc thôi học"; "trượt môn" -> "học lại"; "xin nghỉ" -> "xin tạm ngừng"). KHÔNG được thêm từ chỉ loại/phân loại.
+         + **Hướng 2 (Từ khóa bao trùm):** Tìm chủ đề lớn chứa vấn đề (Ví dụ: Hỏi "thẻ sinh viên" -> "Quy định cấp/quản lý thẻ sinh viên").
+         + **Hướng 3 (Tìm kiếm phổ quát):** Thêm từ khóa tìm kiếm chung hoặc hỏi "là gì"/"quy định" nếu phù hợp.
+       - **LƯU Ý:** Đặt câu HỎI GỐC LUÔN Ở VỊ TRÍ THỨ NHẤT trong expanded_queries.
 
     [VÍ DỤ MẪU - FEW SHOT EXAMPLES]
     Input: "Chào bot nhé bạn ăn cơm chưa"
@@ -88,7 +89,7 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
     Output: {{"question_type": "verification", "answer": null, "expanded_queries": ["Điểm F học phần có bị buộc thôi học không", "Quy định xử lý sinh viên nhận điểm F", "Điều kiện buộc thôi học kết quả học tập"]}}
 
     Input: "Học bổng khá với giỏi khác nhau nhiều không ạ"
-    Output: {{"question_type": "comparative", "answer": null, "expanded_queries": ["So sánh học bổng khuyến khích học tập loại khá và giỏi", "Tiêu chuẩn xét học bổng khá và giỏi", "Mức tiền học bổng khá giỏi"]}}
+    Output: {{"question_type": "comparative", "answer": null, "expanded_queries": ["Học bổng khá với giỏi khác nhau nhiều không ạ", "So sánh tiêu chuẩn xét học bổng khá và giỏi", "Mức tiền hỗ trợ học bổng khá giỏi"]}}
 
     Input: "Em bị cảnh báo học vụ lần 1 thì phải làm giấy tờ gì không"
     Output: {{"question_type": "sequential", "answer": null, "expanded_queries": ["Quy trình thủ tục xử lý sinh viên cảnh báo học vụ lần 1", "Xử lý kết quả học tập cảnh báo học vụ", "Sinh viên cần làm gì khi bị cảnh báo kết quả học tập"]}}
