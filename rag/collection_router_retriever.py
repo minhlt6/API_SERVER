@@ -1,6 +1,7 @@
 import hashlib
 import logging
 from typing import List
+from threading import Lock
 
 from langchain_core.documents import Document as LangChainDocument
 from rank_bm25 import BM25Okapi
@@ -37,7 +38,8 @@ class CollectionRouterRetriever:
         self.embeddings_model = embeddings_model
         self.top_n_collections = max(1, int(top_n_collections or 3))
         # Cache giờ đây lưu một dict: { 'bm25': obj, 'corpus_docs': list, 'count': int }
-        self._bm25_cache = {}  
+        self._bm25_cache = {}
+        self._bm25_lock = Lock()  # Thread-safe lock cho BM25 cache  
 
     @staticmethod
     def _doc_key(doc) -> str:
@@ -69,18 +71,19 @@ class CollectionRouterRetriever:
 
         normalized_cohort = (cohort_key or "").strip()
         if normalized_cohort:
-            return [
+            matches = [
                 collection_name
                 for collection_name in active_collections
                 if collection_matches_cohort(collection_name, normalized_cohort)
             ]
+            return matches[:1] if matches else []
 
         return active_collections[: self.top_n_collections]
 
     def _ensure_bm25_loaded(self, collection_name: str) -> tuple[BM25Okapi, List[LangChainDocument]] | None:
         """Lazy load and cache BM25 index and corpus for a collection (với cơ chế tự động làm mới Cache)"""
         
-        # 1. Lấy tổng số chunks hiện tại trong Qdrant (Rất nhanh, tốn < 10ms)
+        # 1. Lấy tổng số chunks hiện tại trong Qdrant 
         try:
             collection_info = self.qdrant_client.get_collection(collection_name)
             current_count = collection_info.points_count
@@ -89,10 +92,11 @@ class CollectionRouterRetriever:
             return None
 
         # 2. Kiểm tra Cache: Nếu chưa có hoặc số lượng thay đổi -> Xóa cache build lại
-        cached_data = self._bm25_cache.get(collection_name)
-        if cached_data and cached_data.get('count') == current_count:
-            # Tái sử dụng (Phải trả về cả bm25 VÀ corpus_docs để map điểm)
-            return cached_data['bm25'], cached_data['corpus_docs'] 
+        with self._bm25_lock:
+            cached_data = self._bm25_cache.get(collection_name)
+            if cached_data and cached_data.get('count') == current_count:
+                # Tái sử dụng (Phải trả về cả bm25 VÀ corpus_docs để map điểm)
+                return cached_data['bm25'], cached_data['corpus_docs'] 
             
         logger.info(f"Phát hiện dữ liệu mới hoặc chưa có cache cho {collection_name} (Count: {current_count}). Đang build lại BM25...")
         
@@ -147,11 +151,12 @@ class CollectionRouterRetriever:
             bm25 = BM25Okapi(tokenized_docs, k1=1.5, b=0.5)
             
             # 3. Lưu lại Cache kèm the con số count và corpus_docs để đối chiếu lần sau
-            self._bm25_cache[collection_name] = {
-                'bm25': bm25,
-                'corpus_docs': corpus_docs,
-                'count': current_count
-            }
+            with self._bm25_lock:
+                self._bm25_cache[collection_name] = {
+                    'bm25': bm25,
+                    'corpus_docs': corpus_docs,
+                    'count': current_count
+                }
             logger.info("BM25 index built and cached for collection=%s (docs=%d)", collection_name, len(corpus_docs))
             
             return bm25, corpus_docs

@@ -17,17 +17,6 @@ MAX_CONTEXT_CHARS = 12000
 MAX_DOC_CHARS = 1800 
 MAX_OUT_CHARS = 3000
 
-# Quản lý API Keys cho Groq và Gemini với xoay tua tự động khi gặp lỗi hoặc hết hạn
-
-
-def sanitize_for_prompt(text: str) -> str:
-    """Lọc bỏ prompt injection và PII """
-    text = re.sub(r"(?i)(ignore previous instructions|system prompt|developer message|jailbreak)", "[FILTERED_INJECTION]", text)
-    text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[EMAIL]", text)
-    text = re.sub(r"\b(0\d{9}|\+84\d{9,10})\b", "[PHONE]", text)
-    text = re.sub(r"\b\d{8,12}\b", "[ID]", text)  
-    return text.strip()
-
 def generate_standalone_query(message: str, history: List) -> str:
     """Tái tạo câu hỏi từ lịch sử """
     if not history:

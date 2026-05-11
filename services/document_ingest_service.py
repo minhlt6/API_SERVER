@@ -223,8 +223,7 @@ def process_document_ingest(
 
         if not vectors or not vectors[0]:
             raise ValueError("Failed to create embeddings for chunks.")
-
-        target_collection = (collection_name or document.collection_name or QDRANT_COLLECTION or "").strip()
+        target_collection = (collection_name or document.collection_name or "rag_docs" or "").strip()
         if not target_collection:
             raise ValueError("Target collection is empty.")
 

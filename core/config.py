@@ -9,7 +9,7 @@ try:
 except Exception:
     pass
 
-
+#Kiểm tra xem có thư mục /data không và có quyền ghi hay không để quyết định sử dụng persistent storage của Hugging Face hay không
 def _is_hf_persistent_storage_available() -> bool:
     data_dir = Path('/data')
     return data_dir.exists() and os.access(data_dir, os.W_OK)
@@ -17,13 +17,13 @@ def _is_hf_persistent_storage_available() -> bool:
 
 _USE_HF_PERSISTENT_STORAGE = _is_hf_persistent_storage_available()
 
-
+# Nếu sử dụng persistent storage của Hugging Face, lưu trữ metadata vào /data/rag_metadata.db, ngược lại lưu vào thư mục hiện tại
 def _default_documents_db_url() -> str:
     if _USE_HF_PERSISTENT_STORAGE:
         return 'sqlite:////data/rag_metadata.db'
     return 'sqlite:///./rag_metadata.db'
 
-
+# Hàm tiện ích để lấy giá trị int từ biến môi trường với giới hạn min và max, trả về default nếu không hợp lệ
 def _bounded_int_from_env(name: str, default: int, minimum: int, maximum: int) -> int:
     raw_value = os.getenv(name, str(default))
     try:
@@ -48,7 +48,6 @@ CHUNK_OVERLAP = int(os.getenv('CHUNK_OVERLAP', '150'))
 TOP_K_RESULTS = int(os.getenv('TOP_K_RESULTS', '10'))
 FINAL_TOP_K = int(os.getenv('FINAL_TOP_K', '5'))
 
-QDRANT_COLLECTION = os.getenv('QDRANT_COLLECTION', 'rag_docs')
 DOCUMENTS_DATABASE_URL = os.getenv('DOCUMENTS_DATABASE_URL', _default_documents_db_url())
 
 # External service configs
