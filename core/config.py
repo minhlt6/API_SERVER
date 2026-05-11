@@ -65,7 +65,7 @@ SUPABASE_SYNC_ENABLED = bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and SUPA
 SUPABASE_SYNC_ALLOWED_IPS = [ip.strip() for ip in os.getenv('SUPABASE_SYNC_ALLOWED_IPS', '').split(',') if ip.strip()]
 SUPABASE_SYNC_ALLOW_PRIVATE_NETWORK = os.getenv('SUPABASE_SYNC_ALLOW_PRIVATE_NETWORK', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 COLLECTION_ROUTER_TOP_N = _bounded_int_from_env('COLLECTION_ROUTER_TOP_N', 3, 1, 20)
-
+QDRANT_COLLECTION = os.getenv('QDRANT_COLLECTION', 'rag_docs')
 # - Context and output limits
 MAX_CONTEXT_CHARS = int(os.getenv('MAX_CONTEXT_CHARS', '12000'))
 MAX_OUT_CHARS = int(os.getenv('MAX_OUT_CHARS', '3000'))

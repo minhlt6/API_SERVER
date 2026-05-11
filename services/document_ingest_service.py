@@ -17,7 +17,7 @@ from qdrant_client.models import (
 )
 
 from rag.chunking import smart_chunking
-from core.config import QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_URL
+from core.config import QDRANT_API_KEY, QDRANT_URL
 from database.document_db import Document, DocumentChunk, SessionLocal
 from rag.models import embeddings
 from utils.text_utils import clean_text
