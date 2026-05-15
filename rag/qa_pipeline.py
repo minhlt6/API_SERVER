@@ -278,6 +278,15 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
             if source_key not in seen_sources:
                 seen_sources.add(source_key)
                 object_path = str(doc_info.get('object_path') or '').strip()
+                # Nếu không có object_path, thử tạo từ source_file
+                if not object_path and doc_info['source'] and doc_info['source'] != "Không rõ":
+                    # Giả sử mỗi cohort có thư mục k65/, k66/ v.v.
+                    # Fallback: nếu source có phần đầu là k\d, dùng nó; nếu không thì dùng tên file
+                    source_file = doc_info['source']
+                    # Kiểm tra xem có cohort_key trong source không (format "k65_document.pdf" hoặc tương tự)
+                    if cohort_key:
+                        object_path = f"{cohort_key}/{source_file}"
+                
                 if object_path:
                     yield f"- **{object_path}** (Trang {doc_info['page']})\n"
                 else:
