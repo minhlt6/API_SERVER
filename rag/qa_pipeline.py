@@ -185,6 +185,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
     for doc in final_docs:
         page = doc.metadata.get('page_number', 'N/A')
         file_name = doc.metadata.get('source_file') or doc.metadata.get('source')
+        object_path = doc.metadata.get('source_relpath') or doc.metadata.get('object_path') or ''
         source = f"[{os.path.basename(file_name)} | Trang {page}]" if file_name else f"[Trang {page}]"
         block = f"{source}\n{doc.page_content}"
         
@@ -196,6 +197,7 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
         context_parts.append(block)
         context_docs.append({
             'source': file_name or "Không rõ",
+            'object_path': object_path,
             'page': page
         })
     
@@ -271,8 +273,12 @@ def ask_ai_stream_delta(message: str, history: List, hybrid_retriever, cohort_ke
         yield "\n\n---\n\n"
         yield "## 📚 Tài liệu tham khảo\n\n"
         seen_sources = set()
-        for i, doc_info in enumerate(context_docs, 1):
+        for doc_info in context_docs:
             source_key = f"{doc_info['source']}_{doc_info['page']}"
             if source_key not in seen_sources:
                 seen_sources.add(source_key)
-                yield f"- **{doc_info['source']}** (Trang {doc_info['page']})\n"
+                object_path = str(doc_info.get('object_path') or '').strip()
+                if object_path:
+                    yield f"- **{object_path}** (Trang {doc_info['page']})\n"
+                else:
+                    yield f"- **{doc_info['source']}** (Trang {doc_info['page']})\n"
