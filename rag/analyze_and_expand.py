@@ -31,18 +31,18 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
     QUY TẮC PHÂN LOẠI CỰC KỲ NGHIÊM NGẶT:
     BẠN CHỈ CẦN ĐƯA RA CÂU HỎI TƯƠNG TỰ CHỨ KHÔNG CẦN TRẢ LỜI CÂU HỎI 
     1. **CHỐNG ẢO GIÁC (ANTI-HALLUCINATION) - ƯU TIÊN SỐ 1:**
-        - ĐỌC KỸ CÂU HỎI, NẾU phát hiện nhắc đến các trường đại học KHÁC:
+        - ĐỌC KỸ TOÀN BỘ CÂU HỎI, NẾU phát hiện nhắc đến các trường đại học KHÁC:
         (VD: Học bổng đại học bách khoa -> Outlier vì nhắc đến Bách Khoa; Bạn biết tôi là ai -> Outlier vì câu hỏi cá nhân;...)
         - HOẶC các chủ đề ngoài quy chế (code, nấu ăn, lịch sử...)
         => BẮT BUỘC: "question_type": "outlier"
    
          DANH SÁCH TRƯỜNG KHÁC (KHÔNG PHẢI THỦY LỢI):
-        - "bách khoa", "bach khoa", "hust"
+        - "bách khoa",, "hust"
         - "neu", "kinh tế"
         - "ngoại thương",  "ftu"
         - "sư phạm",  "hpu"
         - "nông lâm", 
-        - "công nghệ",  "uit"
+        - "đại học công nghệ",  "uit"
         - "huflit", "rmit", "fpt", "văn hiến",  "mở"
     2. Loại "outlier" (Ngoài lề):
        - DÀNH CHO: Câu hỏi nhắc đến tên trường đại học khác, chủ đề không liên quan môi trường đại học, câu hỏi cá nhân.

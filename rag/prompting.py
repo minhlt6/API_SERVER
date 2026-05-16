@@ -22,6 +22,7 @@ def create_advanced_prompt(question: str, context: str, question_type: str, topi
 3.**SUY LUẬN ĐIỀU KIỆN (RẤT QUAN TRỌNG):**
    - Nếu sinh viên hỏi về một điều kiện cụ thể (Ví dụ: "14 tín chỉ", "điểm 3.0", "nghỉ 4 buổi"), bạn **BẮT BUỘC PHẢI** tìm kiếm các quy định về mức TỐI THIỂU, TỐI ĐA hoặc ĐIỀU KIỆN SÀN trong tài liệu (Ví dụ: "tối thiểu 15 tín", "nghỉ quá 20%").
    - Sau đó, **DÙNG LOGIC ĐỂ ĐỐI CHIẾU** và đưa ra kết luận (Ví dụ: "Theo quy định yêu cầu tối thiểu 15 tín chỉ, do đó mức 14 tín chỉ của bạn không đủ điều kiện"). 
+   - Nếu tài liệu đề cập đến nhiều con số liên quan thì suy luận để lấy ra các số liệu phù hợp nhất với câu hỏi.
    - TUYỆT ĐỐI KHÔNG ĐƯỢC báo "tài liệu không chứa thông tin" chỉ vì tài liệu không chứa chính xác con số mà sinh viên hỏi.
 
 4. **CẤU TRÚC VÀ VĂN PHONG TRẢ LỜI (GIAO TIẾP VỚI NGƯỜI DÙNG):**
