@@ -150,7 +150,7 @@ def analyze_and_expand_query(question: str) -> Dict[str, Any]:
             "ngoại thương",  "ftu",
             "sư phạm",  "hpu",
             "nông lâm", 
-            "công nghệ",  "uit",
+            "đại học công nghệ",  "uit",
             "huflit", "rmit", "fpt", "văn hiến",  "mở"
         ]
 
